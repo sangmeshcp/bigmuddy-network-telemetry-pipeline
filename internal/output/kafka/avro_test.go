@@ -1,8 +1,12 @@
 package kafka
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
+	"errors"
 	"log/slog"
+	"math"
 	"net/http"
 	"strings"
 	"testing"
@@ -72,7 +76,7 @@ func TestAvroConformance(t *testing.T) {
 		ReadBack: func(t *testing.T) []telemetry.Row {
 			var rows []telemetry.Row
 			for _, rec := range consumeAll(t, cluster.ListenAddrs(), "rows") {
-				id, r, err := DecodeAvro(rec.Value)
+				id, r, err := decodeAvro(rec.Value)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -176,5 +180,124 @@ func TestAvroConfig(t *testing.T) {
 	}
 	if _, err := newKafka(t, `{type: kafka, brokers: [b:9092], topic: t, format: avro, schema_registry: {url: "http://r", username: u, password: p}}`); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// decodeAvro is a strict reader for one Confluent-framed AvroSchema value.
+func decodeAvro(v []byte) (schemaID int, r telemetry.Row, err error) {
+	if len(v) < 5 || v[0] != 0 {
+		return 0, r, errors.New("not a Confluent-framed value")
+	}
+	schemaID = int(binary.BigEndian.Uint32(v[1:5]))
+	d := &avroReader{b: v[5:]}
+	r.Timestamp = time.UnixMicro(d.long()).UTC()
+	r.Source, r.Name, r.Field = d.str(), d.str(), d.str()
+	r.Tags = map[string]string{}
+	for n := d.long(); n != 0 && d.err == nil; n = d.long() {
+		if n < 0 {
+			n = -n
+			d.long() // block byte size
+		}
+		for ; n > 0 && d.err == nil; n-- {
+			k := d.str()
+			r.Tags[k] = d.str()
+		}
+	}
+	r.MetricType, r.ValueType = d.str(), d.str()
+	if d.branch() {
+		if len(d.b) < 8 {
+			return schemaID, r, errors.New("short double")
+		}
+		f := math.Float64frombits(binary.LittleEndian.Uint64(d.b))
+		d.b = d.b[8:]
+		r.ValueDouble = &f
+	}
+	if d.branch() {
+		i := d.long()
+		r.ValueInt = &i
+	}
+	if d.branch() {
+		s := d.str()
+		r.ValueString = &s
+	}
+	if d.err == nil && len(d.b) != 0 {
+		d.err = errors.New("trailing bytes")
+	}
+	return schemaID, r, d.err
+}
+
+type avroReader struct {
+	b   []byte
+	err error
+}
+
+func (d *avroReader) long() int64 {
+	u, n := binary.Uvarint(d.b)
+	if n <= 0 {
+		if d.err == nil {
+			d.err = errors.New("bad varint")
+		}
+		return 0
+	}
+	d.b = d.b[n:]
+	return int64(u>>1) ^ -int64(u&1)
+}
+
+func (d *avroReader) str() string {
+	n := d.long()
+	if n < 0 || int64(len(d.b)) < n {
+		if d.err == nil {
+			d.err = errors.New("bad string length")
+		}
+		return ""
+	}
+	s := string(d.b[:n])
+	d.b = d.b[n:]
+	return s
+}
+
+func (d *avroReader) branch() bool {
+	switch d.long() {
+	case 0:
+		return false
+	case 1:
+		return true
+	}
+	if d.err == nil {
+		d.err = errors.New("bad union branch")
+	}
+	return false
+}
+
+// TestAvroEncodingVector pins the byte encoding against values worked out
+// by hand from the Avro specification.
+func TestAvroEncodingVector(t *testing.T) {
+	f, i := 1.5, int64(-3)
+	r := telemetry.Row{Timestamp: time.UnixMicro(1).UTC(), Source: "r1", Name: "n", Field: "f",
+		Tags: map[string]string{"b": "2", "a": "1"}, MetricType: "counter", ValueType: "int",
+		ValueDouble: &f, ValueInt: &i}
+	want := []byte{
+		0x02,           // timestamp 1us (zig-zag 2)
+		0x04, 'r', '1', // source
+		0x02, 'n', // name
+		0x02, 'f', // field
+		0x04, 0x02, 'a', 0x02, '1', 0x02, 'b', 0x02, '2', 0x00, // map: 2 entries, sorted, end
+		0x0e, 'c', 'o', 'u', 'n', 't', 'e', 'r', // metric_type
+		0x06, 'i', 'n', 't', // value_type
+		0x02, 0, 0, 0, 0, 0, 0, 0xf8, 0x3f, // double branch, 1.5 little-endian
+		0x02, 0x05, // long branch, -3
+		0x00, // null string
+	}
+	if got := appendAvroRow(nil, r); !bytes.Equal(got, want) {
+		t.Fatalf("encoding\n got  % x\n want % x", got, want)
+	}
+	// Empty tags: just the end-of-map marker. Large and negative longs round-trip.
+	for _, v := range []int64{0, -1, 1, math.MaxInt64, math.MinInt64} {
+		v := v
+		r := telemetry.Row{Timestamp: time.Unix(0, 0).UTC(), ValueInt: &v}
+		_, back, err := decodeAvro(append([]byte{0, 0, 0, 0, 1}, appendAvroRow(nil, r)...))
+		if err != nil || *back.ValueInt != v || len(back.Tags) != 0 {
+			t.Fatalf("%d: %v %+v", v, err, back)
+		}
 	}
 }

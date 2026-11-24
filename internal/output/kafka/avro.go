@@ -2,13 +2,15 @@ package kafka
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
+	"sort"
 	"sync"
 	"time"
 
-	"github.com/hamba/avro/v2"
 	"github.com/twmb/franz-go/pkg/sr"
 
 	"github.com/sangmeshcp/bigmuddy-network-telemetry-pipeline/internal/config"
@@ -51,22 +53,6 @@ const AvroSchema = `{
     {"name": "value_string", "type": ["null", "string"], "default": null}
   ]
 }`
-
-// avroRow mirrors AvroSchema.
-type avroRow struct {
-	Timestamp   time.Time         `avro:"timestamp"`
-	Source      string            `avro:"source"`
-	Name        string            `avro:"name"`
-	Field       string            `avro:"field"`
-	Tags        map[string]string `avro:"tags"`
-	MetricType  string            `avro:"metric_type"`
-	ValueType   string            `avro:"value_type"`
-	ValueDouble *float64          `avro:"value_double"`
-	ValueInt    *int64            `avro:"value_int"`
-	ValueString *string           `avro:"value_string"`
-}
-
-var parsedAvro = avro.MustParse(AvroSchema)
 
 // avroEncoder registers the schema once (lazily, so the pipeline starts while
 // the registry is down) and frames rows in the Confluent wire format:
@@ -151,37 +137,60 @@ func (e *avroEncoder) encode(ctx context.Context, rows []telemetry.Row) ([][]byt
 	}
 	out := make([][]byte, len(rows))
 	for i, r := range rows {
-		tags := r.Tags
-		if tags == nil {
-			tags = map[string]string{}
-		}
-		b, err := avro.Marshal(parsedAvro, avroRow{
-			Timestamp: r.Timestamp, Source: r.Source, Name: r.Name, Field: r.Field, Tags: tags,
-			MetricType: r.MetricType, ValueType: r.ValueType,
-			ValueDouble: r.ValueDouble, ValueInt: r.ValueInt, ValueString: r.ValueString,
-		})
-		if err != nil {
-			return nil, pipeline.Permanent(fmt.Errorf("avro encode: %w", err))
-		}
-		framed := make([]byte, 5, 5+len(b))
-		framed[1], framed[2], framed[3], framed[4] = byte(id>>24), byte(id>>16), byte(id>>8), byte(id)
-		out[i] = append(framed, b...)
+		b := []byte{0, byte(id >> 24), byte(id >> 16), byte(id >> 8), byte(id)}
+		out[i] = appendAvroRow(b, r)
 	}
 	return out, nil
 }
 
-// DecodeAvro decodes one Confluent-framed value written by format: avro. It
-// is used by tests and is handy for debugging.
-func DecodeAvro(v []byte) (schemaID int, r telemetry.Row, err error) {
-	if len(v) < 5 || v[0] != 0 {
-		return 0, r, errors.New("not a Confluent-framed value")
+// appendAvroRow appends r in Avro binary encoding of AvroSchema. The schema
+// is fixed and small, so it is encoded directly rather than through a
+// general-purpose (reflection, schema-parsing) Avro library: no decoder, no
+// third-party code on the hot path. ClickHouse's AvroConfluent reader checks
+// this encoding in the integration tests.
+func appendAvroRow(b []byte, r telemetry.Row) []byte {
+	b = appendLong(b, r.Timestamp.UnixMicro()) // timestamp-micros
+	b = appendString(b, r.Source)
+	b = appendString(b, r.Name)
+	b = appendString(b, r.Field)
+	if len(r.Tags) > 0 { // map: one block of len(tags) entries, then 0
+		keys := make([]string, 0, len(r.Tags))
+		for k := range r.Tags {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		b = appendLong(b, int64(len(keys)))
+		for _, k := range keys {
+			b = appendString(appendString(b, k), r.Tags[k])
+		}
 	}
-	schemaID = int(v[1])<<24 | int(v[2])<<16 | int(v[3])<<8 | int(v[4])
-	var a avroRow
-	if err := avro.Unmarshal(parsedAvro, v[5:], &a); err != nil {
-		return schemaID, r, err
+	b = appendLong(b, 0)
+	b = appendString(b, r.MetricType)
+	b = appendString(b, r.ValueType)
+	// Unions ["null", T]: branch index 0 = null, 1 = value.
+	if r.ValueDouble == nil {
+		b = appendLong(b, 0)
+	} else {
+		b = binary.LittleEndian.AppendUint64(appendLong(b, 1), math.Float64bits(*r.ValueDouble))
 	}
-	return schemaID, telemetry.Row{Timestamp: a.Timestamp.UTC(), Source: a.Source, Name: a.Name, Field: a.Field,
-		Tags: a.Tags, MetricType: a.MetricType, ValueType: a.ValueType,
-		ValueDouble: a.ValueDouble, ValueInt: a.ValueInt, ValueString: a.ValueString}, nil
+	if r.ValueInt == nil {
+		b = appendLong(b, 0)
+	} else {
+		b = appendLong(appendLong(b, 1), *r.ValueInt)
+	}
+	if r.ValueString == nil {
+		b = appendLong(b, 0)
+	} else {
+		b = appendString(appendLong(b, 1), *r.ValueString)
+	}
+	return b
+}
+
+// appendLong writes an Avro int/long: zig-zag, then base-128 varint.
+func appendLong(b []byte, v int64) []byte {
+	return binary.AppendUvarint(b, uint64(v<<1)^uint64(v>>63))
+}
+
+func appendString(b []byte, s string) []byte {
+	return append(appendLong(b, int64(len(s))), s...)
 }
