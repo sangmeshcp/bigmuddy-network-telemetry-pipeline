@@ -1,0 +1,247 @@
+name: ci
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  schedule:
+    - cron: "17 4 * * 1"   # weekly: also runs the optional real-device job
+  workflow_dispatch:
+    inputs:
+      real_device:
+        description: "Also test gNMI against a real NOS (Nokia SR Linux)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GOTOOLCHAIN: local
+
+jobs:
+  # ---------------------------------------------------------------------------
+  lint:
+    name: lint (gofmt, vet, staticcheck)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with: {go-version-file: go.mod}
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || (gofmt -d .; exit 1)
+      - name: go mod tidy is clean
+        run: go mod tidy && git diff --exit-code go.mod go.sum
+      - name: go vet
+        run: go vet -tags integration ./...
+      - name: staticcheck
+        run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 -tags integration ./...
+
+  # ---------------------------------------------------------------------------
+  unit:
+    name: unit tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with: {go-version-file: go.mod}
+      - name: test (race, coverage)
+        run: go test -race -count=1 -covermode=atomic -coverprofile=coverage.out ./...
+      - name: coverage summary
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          {
+            echo "### Coverage"
+            echo '```'
+            go tool cover -func=coverage.out | grep -v '/internal/gen/' | awk '{printf "%-90s %s\n", $1, $NF}' | tail -40
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          go tool cover -func=coverage.out | tail -1
+      - uses: actions/upload-artifact@v5
+        if: matrix.os == 'ubuntu-latest'
+        with:
+          name: coverage
+          path: coverage.out
+
+  # ---------------------------------------------------------------------------
+  proto:
+    name: proto (lint + generated code up to date)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with: {go-version-file: go.mod}
+      - name: install generators (versions match committed code)
+        run: |
+          go install github.com/bufbuild/buf/cmd/buf@v1.47.2
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.12
+          GOTOOLCHAIN=auto go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.2
+      - run: buf lint
+      - name: regenerate and diff
+        run: |
+          buf generate
+          git diff --exit-code internal/gen || (echo "::error::generated code is stale; run 'make generate'"; exit 1)
+
+  # ---------------------------------------------------------------------------
+  integration-backends:
+    name: integration (InfluxDB, Kafka, Prometheus)
+    runs-on: ubuntu-latest
+    needs: unit
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with: {go-version-file: go.mod}
+      - name: start InfluxDB 2, Kafka (KRaft), Prometheus 3
+        run: |
+          docker run -d --name influxdb -p 8086:8086 \
+            -e DOCKER_INFLUXDB_INIT_MODE=setup \
+            -e DOCKER_INFLUXDB_INIT_USERNAME=ci -e DOCKER_INFLUXDB_INIT_PASSWORD=ci-password \
+            -e DOCKER_INFLUXDB_INIT_ORG=ci -e DOCKER_INFLUXDB_INIT_BUCKET=telemetry \
+            -e DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=ci-token \
+            influxdb:2.7
+          docker run -d --name kafka -p 9092:9092 apache/kafka:3.9.0
+          docker run -d --name prometheus -p 9090:9090 prom/prometheus:v3.4.0 \
+            --config.file=/etc/prometheus/prometheus.yml --web.enable-otlp-receiver
+      - name: wait for services
+        run: |
+          wait_for() { for i in $(seq 1 60); do eval "$2" >/dev/null 2>&1 && { echo "$1 ready"; return 0; }; sleep 2; done; echo "$1 not ready"; docker logs "$1" | tail -50; return 1; }
+          wait_for influxdb "curl -fsS localhost:8086/health"
+          wait_for prometheus "curl -fsS localhost:9090/-/ready"
+          wait_for kafka "docker exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list"
+      - name: integration tests
+        env:
+          INFLUX_URL: http://localhost:8086
+          INFLUX_TOKEN: ci-token
+          INFLUX_ORG: ci
+          INFLUX_BUCKET: telemetry
+          KAFKA_BROKERS: localhost:9092
+          PROMETHEUS_URL: http://localhost:9090
+        run: go test -tags integration -count=1 -v -run 'TestInfluxDB2|TestKafka|TestPrometheusOTLP' ./integration/
+      - name: service logs on failure
+        if: failure()
+        run: for c in influxdb kafka prometheus; do echo "=== $c"; docker logs $c 2>&1 | tail -80; done
+
+  # ---------------------------------------------------------------------------
+  integration-gnmi:
+    name: integration (gNMI, OpenConfig reference target, mTLS)
+    runs-on: ubuntu-latest
+    needs: unit
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with: {go-version-file: go.mod}
+      - name: start OpenConfig reference gNMI target (fake_server)
+        run: scripts/gnmi-reference-target.sh start > "$RUNNER_TEMP/gnmi.env"
+      - name: gNMI integration test
+        run: |
+          source "$RUNNER_TEMP/gnmi.env"
+          go test -tags integration -count=1 -v -run TestGNMITarget ./integration/
+      - name: target log on failure
+        if: failure()
+        run: cat "${TMPDIR:-/tmp}/gnmi-reference-target/server.log" || true
+      - name: stop target
+        if: always()
+        run: scripts/gnmi-reference-target.sh stop
+
+  # Optional: the same test against a real network OS. Not on the PR path
+  # (vendor image, slow boot); runs weekly and on manual dispatch.
+  integration-device:
+    name: integration (gNMI, real NOS - Nokia SR Linux)
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.real_device)
+    runs-on: ubuntu-latest
+    needs: unit
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with: {go-version-file: go.mod}
+      - name: install containerlab
+        run: bash -c "$(curl -sL https://get.containerlab.dev)"
+      - name: deploy SR Linux
+        run: sudo containerlab deploy -t integration/srlinux.clab.yml
+      - name: gNMI integration test
+        env:
+          GNMI_TARGET: clab-itest-srl:57400
+          GNMI_USERNAME: admin
+          GNMI_PASSWORD: NokiaSrl1!
+          GNMI_PATH: /interface/statistics
+        run: go test -tags integration -count=1 -v -run TestGNMITarget ./integration/
+      - name: device logs on failure
+        if: failure()
+        run: |
+          sudo containerlab inspect -t integration/srlinux.clab.yml || true
+          docker logs clab-itest-srl 2>&1 | tail -100
+      - name: destroy lab
+        if: always()
+        run: sudo containerlab destroy -t integration/srlinux.clab.yml --cleanup || true
+
+  # ---------------------------------------------------------------------------
+  docker:
+    name: container image + smoke test
+    runs-on: ubuntu-latest
+    needs: unit
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with: {go-version-file: go.mod}
+      - uses: docker/setup-buildx-action@v3
+      - name: build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: telemetry-pipeline:ci
+          build-args: VERSION=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: image checks
+        run: |
+          docker run --rm telemetry-pipeline:ci -version
+          docker run --rm telemetry-pipeline:ci -config /etc/pipeline/pipeline.yaml -check
+          test "$(docker image inspect telemetry-pipeline:ci --format '{{.Config.User}}')" = "nonroot:nonroot"
+          docker image inspect telemetry-pipeline:ci --format 'size: {{.Size}} bytes'
+      - name: run container
+        run: docker run -d --name pipeline -p 9180:9180 -p 9273:9273 -p 57500:57500 telemetry-pipeline:ci
+      - name: smoke test (replay captured IOS XR telemetry)
+        run: scripts/smoke.sh
+      - name: graceful shutdown
+        run: |
+          docker stop -t 30 pipeline
+          code=$(docker inspect pipeline --format '{{.State.ExitCode}}')
+          docker logs pipeline 2>&1 | tail -5
+          test "$code" = "0" || { echo "::error::exit code $code"; exit 1; }
+      - name: container logs on failure
+        if: failure()
+        run: docker logs pipeline 2>&1 | tail -100
+
+  # ---------------------------------------------------------------------------
+  config-examples:
+    name: example configs validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with: {go-version-file: go.mod}
+      - run: make build
+      - run: |
+          for f in examples/*.yaml deploy/compose/pipeline.yaml; do
+            echo "== $f"; GNMI_PASSWORD=x INFLUX_TOKEN=x ./bin/pipeline -config "$f" -check
+          done
+
+  # ---------------------------------------------------------------------------
+  security:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with: {go-version-file: go.mod}
+      - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...

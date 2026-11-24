@@ -1,0 +1,14 @@
+# One Nokia SR Linux node: a real network OS with a gNMI server, used by the
+# optional real-device CI job (TestGNMITarget). The default, vendor-neutral
+# target is scripts/gnmi-reference-target.sh. containerlab configures gNMI on :57400 with TLS and
+# the default credentials admin / NokiaSrl1!.
+#
+#   sudo containerlab deploy -t integration/srlinux.clab.yml
+#   GNMI_TARGET=clab-itest-srl:57400 GNMI_USERNAME=admin GNMI_PASSWORD='NokiaSrl1!' GNMI_PATH=/interface/statistics \
+#     go test -tags integration -run TestGNMITarget -v ./integration/
+name: itest
+topology:
+  nodes:
+    srl:
+      kind: nokia_srlinux
+      image: ghcr.io/nokia/srlinux:24.10.1
