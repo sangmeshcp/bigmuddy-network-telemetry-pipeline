@@ -8,6 +8,16 @@ and exported metric names.
 ## [Unreleased]
 
 ### Added
+- **Data platforms**: `parquet` output (Hive-partitioned Parquet lake on
+  S3-compatible or local storage, readable by Snowflake, Databricks, BigQuery,
+  Athena, Trino, ClickHouse and DuckDB) and `clickhouse` output (native
+  protocol, auto-created MergeTree table). Both use one fixed analytical row
+  layout, and retries never duplicate data.
+- Durable disk-backed output queues (`queue: {type: disk}`): survive restarts
+  and destination outages.
+- `metric_types` processor: marks counters (OTLP monotonic Sums,
+  Prometheus counter type); `downsample` processor for cost control.
+
 - Signed release archives for linux/darwin × amd64/arm64 with checksums and
   SBOMs; multi-arch, cosign-signed container image on GHCR; release
   rehearsal in CI.
@@ -19,6 +29,10 @@ and exported metric names.
   checked against a live pipeline in CI.
 - Community files: issue forms, PR template, code of conduct, security
   policy, governance, this changelog, DCO check and Dependabot.
+
+### Changed
+- The Prometheus exporter serves the classic text format (not OpenMetrics),
+  so series names stay stable when counters are typed.
 
 ## 2026 rebuild
 

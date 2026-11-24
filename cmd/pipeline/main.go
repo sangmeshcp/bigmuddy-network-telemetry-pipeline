@@ -26,6 +26,7 @@ import (
 	// Plugins register themselves.
 	_ "github.com/sangmeshcp/bigmuddy-network-telemetry-pipeline/internal/input/ciscomdt"
 	_ "github.com/sangmeshcp/bigmuddy-network-telemetry-pipeline/internal/input/gnmi"
+	_ "github.com/sangmeshcp/bigmuddy-network-telemetry-pipeline/internal/output/clickhouse"
 	_ "github.com/sangmeshcp/bigmuddy-network-telemetry-pipeline/internal/output/file"
 	_ "github.com/sangmeshcp/bigmuddy-network-telemetry-pipeline/internal/output/influxdb"
 	_ "github.com/sangmeshcp/bigmuddy-network-telemetry-pipeline/internal/output/kafka"

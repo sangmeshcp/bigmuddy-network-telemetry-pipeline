@@ -176,6 +176,74 @@ A missing bucket or denied access is a permanent error (the batch is
 dropped and logged); network errors and 5xx responses are retried.
 Self-metrics: `parquet_files_written_total`, `parquet_bytes_written_total`.
 
+## `clickhouse`
+
+Inserts the [analytical rows](../concepts/data-model.md#analytical-row-layout)
+into [ClickHouse](https://clickhouse.com/) over the native protocol, for
+real-time SQL dashboards (Grafana's ClickHouse data source, Superset, …).
+
+```yaml
+- name: ch
+  type: clickhouse
+  addr: ["clickhouse:9000"]           # 9440 with TLS (ClickHouse Cloud)
+  database: network
+  username: pipeline
+  password_file: /run/secrets/pipeline/clickhouse
+  ttl: 2160h                          # keep 90 days (table created with this TTL)
+  batch_size: 50000
+  flush_interval: 5s
+```
+
+| Key | Default | Meaning |
+|---|---|---|
+| `addr` | *required* | Native-protocol `host:port` list (load-balanced) |
+| `database`, `table` | `default`, `telemetry` | |
+| `username`, `password` / `password_file` | | |
+| `tls` | disabled | Enable for ClickHouse Cloud / port 9440 |
+| `create_table` | `true` | Create the table if missing (see DDL below) |
+| `ttl` | none | Retention applied when the table is created |
+| `cluster` | | `CREATE TABLE … ON CLUSTER` with `ReplicatedMergeTree` |
+| `dial_timeout` | `10s` | |
+
+The created table:
+
+```sql
+CREATE TABLE IF NOT EXISTS network.telemetry (
+    timestamp    DateTime64(9, 'UTC') CODEC(DoubleDelta, ZSTD(1)),
+    source       LowCardinality(String),
+    name         LowCardinality(String),
+    field        LowCardinality(String),
+    tags         Map(LowCardinality(String), String),
+    metric_type  LowCardinality(String),
+    value_type   LowCardinality(String),
+    value_double Nullable(Float64) CODEC(ZSTD(1)),
+    value_int    Nullable(Int64) CODEC(ZSTD(1)),
+    value_string Nullable(String) CODEC(ZSTD(1))
+)
+ENGINE = MergeTree
+PARTITION BY toDate(timestamp)
+ORDER BY (name, source, field, timestamp)
+SETTINGS non_replicated_deduplication_window = 1000
+```
+
+**Retries don't duplicate.** Each batch is one INSERT with
+`insert_deduplication_token` set to the batch's content fingerprint, so
+ClickHouse discards a retried batch. Keep `batch_size` below ClickHouse's
+`max_insert_block_size` (default about 1M rows) so a batch stays one block.
+
+Authentication failures, access denied, and unknown database, table or
+column are permanent errors; others are retried.
+
+```sql
+-- Interface throughput (bits/s) per minute
+SELECT toStartOfMinute(timestamp) AS t, tags['interface_name'] AS interface,
+       (max(value_double) - min(value_double)) * 8 / 60 AS bps
+FROM network.telemetry
+WHERE field = 'state/counters/in-octets' AND source = 'core1'
+  AND timestamp > now() - INTERVAL 1 HOUR
+GROUP BY t, interface ORDER BY t;
+```
+
 ## `file`: JSON lines
 
 For debugging, or as a simple archive.

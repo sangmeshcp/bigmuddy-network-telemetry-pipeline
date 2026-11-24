@@ -184,6 +184,39 @@ jobs:
         run: sudo containerlab destroy -t integration/srlinux.clab.yml --cleanup || true
 
   # ---------------------------------------------------------------------------
+  lakehouse:
+    name: integration (ClickHouse, MinIO/S3 Parquet read by ClickHouse)
+    runs-on: ubuntu-latest
+    needs: unit
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with: {go-version-file: go.mod}
+      - name: start ClickHouse and MinIO (host network, so ClickHouse can reach MinIO)
+        run: |
+          docker run -d --name clickhouse --network host \
+            -e CLICKHOUSE_SKIP_USER_SETUP=1 --ulimit nofile=262144:262144 \
+            clickhouse/clickhouse-server:25.8
+          docker run -d --name minio --network host \
+            -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
+            minio/minio:RELEASE.2025-09-07T16-13-09Z server /data --address 127.0.0.1:9100 --console-address 127.0.0.1:9101
+          for i in $(seq 1 60); do curl -fsS 127.0.0.1:8123/ping >/dev/null 2>&1 && curl -fsS 127.0.0.1:9100/minio/health/ready >/dev/null 2>&1 && break; sleep 2; done
+          curl -fsS '127.0.0.1:8123/?query=SELECT%20version()'
+      - name: clickhouse output (conformance, dedup, DDL, errors) against a real server
+        env: {CLICKHOUSE_ADDR: "127.0.0.1:9000"}
+        run: go test -race -count=1 -v ./internal/output/clickhouse/
+      - name: Parquet on MinIO, read back by ClickHouse s3()
+        env:
+          MINIO_ENDPOINT: "127.0.0.1:9100"
+          MINIO_ACCESS_KEY: minioadmin
+          MINIO_SECRET_KEY: minioadmin
+          CLICKHOUSE_HTTP: "http://127.0.0.1:8123"
+        run: go test -tags integration -count=1 -v -run TestParquetOnMinIOReadByClickHouse ./integration/
+      - name: service logs on failure
+        if: failure()
+        run: for c in clickhouse minio; do echo "=== $c"; docker logs $c 2>&1 | tail -60; done
+
+  # ---------------------------------------------------------------------------
   docker:
     name: container image + smoke test
     runs-on: ubuntu-latest
