@@ -206,7 +206,8 @@ jobs:
         run: |
           docker run --rm telemetry-pipeline:ci -version
           docker run --rm telemetry-pipeline:ci -config /etc/pipeline/pipeline.yaml -check
-          test "$(docker image inspect telemetry-pipeline:ci --format '{{.Config.User}}')" = "nonroot:nonroot"
+          # Numeric non-root user: required for Kubernetes runAsNonRoot verification
+          test "$(docker image inspect telemetry-pipeline:ci --format '{{.Config.User}}')" = "65532:65532"
           docker image inspect telemetry-pipeline:ci --format 'size: {{.Size}} bytes'
       - name: run container
         run: docker run -d --name pipeline -p 9180:9180 -p 9273:9273 -p 57500:57500 telemetry-pipeline:ci

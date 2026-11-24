@@ -29,7 +29,8 @@ LABEL org.opencontainers.image.title="telemetry-pipeline" \
       org.opencontainers.image.version="${VERSION}"
 COPY --from=build /out/pipeline /usr/local/bin/pipeline
 COPY examples/minimal.yaml /etc/pipeline/pipeline.yaml
-USER nonroot:nonroot
+# Numeric UID/GID (distroless "nonroot") so Kubernetes can enforce runAsNonRoot.
+USER 65532:65532
 # 9180 admin/self-metrics, 9273 Prometheus exporter, 57500 MDT gRPC dial-out
 EXPOSE 9180 9273 57500
 ENTRYPOINT ["/usr/local/bin/pipeline"]
