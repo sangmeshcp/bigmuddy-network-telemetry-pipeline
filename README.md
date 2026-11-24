@@ -296,8 +296,11 @@ The admin endpoint (`admin: {listen: ":9180"}`) serves `/healthz`,
 | `pipeline_output_written_total` / `pipeline_output_dropped_total{reason}` | delivery health per output |
 | `pipeline_output_write_duration_seconds` | destination latency |
 
-Recommended alert rules and queries:
-[Monitoring the pipeline](docs/operations/monitoring.md).
+**Ready-made Grafana dashboards** (pipeline health, interfaces for OpenConfig
+and IOS XR, BGP) and **tested Prometheus alert rules** ship in
+[`deploy/grafana`](deploy/grafana) and [`deploy/prometheus`](deploy/prometheus).
+They are pre-provisioned in the Compose lab and available through the Helm
+chart. See [Monitoring the pipeline](docs/operations/monitoring.md).
 
 ## Deployment
 

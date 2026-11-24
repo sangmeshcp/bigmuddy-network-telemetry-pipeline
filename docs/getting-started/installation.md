@@ -139,8 +139,8 @@ docker compose up --build
 |---|---|---|
 | Pipeline admin | <http://localhost:9180/metrics> | self-monitoring |
 | Pipeline exporter | <http://localhost:9273/metrics> | device telemetry |
-| Prometheus | <http://localhost:9090> | scrapes both, OTLP receiver enabled |
-| Grafana | <http://localhost:3000> | Prometheus datasource pre-provisioned |
+| Prometheus | <http://localhost:9090> | scrapes both, OTLP receiver enabled, recommended alert rules loaded |
+| Grafana | <http://localhost:3000> | Prometheus datasource and the four dashboards pre-provisioned |
 
 Point IOS XR dial-out at `<your-host>:57500` (gRPC) or `:5432` (TCP), or add
 gNMI targets to `deploy/compose/pipeline.yaml`. To try it without a router:

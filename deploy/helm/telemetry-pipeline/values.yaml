@@ -85,6 +85,19 @@ serviceMonitor:
   # Scrape the device telemetry exporter (in addition to self-metrics).
   scrapeTelemetry: true
 
+prometheusRule:
+  # Ship the recommended alert rules (files/alerts.yaml; requires the
+  # Prometheus Operator CRDs).
+  enabled: false
+  labels: {}
+
+grafanaDashboards:
+  # ConfigMaps picked up by the Grafana sidecar (e.g. kube-prometheus-stack):
+  # pipeline health, interfaces (OpenConfig and IOS XR) and BGP.
+  enabled: false
+  labels: {grafana_dashboard: "1"}
+  annotations: {}
+
 podDisruptionBudget:
   enabled: false
   minAvailable: 1

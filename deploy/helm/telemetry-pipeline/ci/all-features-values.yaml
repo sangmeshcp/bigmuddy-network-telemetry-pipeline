@@ -10,3 +10,5 @@ inputPorts:
   - {name: mdt-udp, port: 5433, protocol: UDP}
 dialoutService: {loadBalancerSourceRanges: [10.0.0.0/8]}
 nodeSelector: {kubernetes.io/os: linux}
+prometheusRule: {enabled: true}
+grafanaDashboards: {enabled: true}

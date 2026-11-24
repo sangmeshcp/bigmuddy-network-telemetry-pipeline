@@ -330,6 +330,54 @@ jobs:
           kubectl logs -l app.kubernetes.io/instance=$REL --all-containers --tail=80 || true
 
   # ---------------------------------------------------------------------------
+  dashboards:
+    name: dashboards & alerts (promtool tests, live queries, Grafana provisioning)
+    runs-on: ubuntu-latest
+    needs: unit
+    env:
+      PROM_VERSION: "3.4.0"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with: {go-version-file: go.mod}
+      - name: install Prometheus + promtool
+        run: |
+          curl -fsSL "https://github.com/prometheus/prometheus/releases/download/v${PROM_VERSION}/prometheus-${PROM_VERSION}.linux-amd64.tar.gz" | tar xz
+          echo "$PWD/prometheus-${PROM_VERSION}.linux-amd64" >> "$GITHUB_PATH"
+      - name: alert rules are valid and pass their unit tests
+        run: |
+          promtool check rules deploy/prometheus/alerts.yaml
+          promtool test rules deploy/prometheus/alerts_test.yaml
+      - name: generated dashboards and chart copies are up to date
+        run: |
+          python3 deploy/grafana/generate.py
+          git diff --exit-code deploy/grafana deploy/helm/telemetry-pipeline/files \
+            || { echo "::error::dashboards are stale: run python3 deploy/grafana/generate.py"; exit 1; }
+          cmp deploy/prometheus/alerts.yaml deploy/helm/telemetry-pipeline/files/alerts.yaml \
+            || { echo "::error::chart alert rules differ: run make chart-assets"; exit 1; }
+      - name: every dashboard query returns data from a live pipeline
+        run: PROMETHEUS=prometheus scripts/dashboard-check.sh
+      - name: Grafana loads all dashboards from provisioning
+        run: |
+          docker run -d --name grafana -p 3000:3000 \
+            -v "$PWD/deploy/compose/grafana/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro" \
+            -v "$PWD/deploy/compose/grafana/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro" \
+            -v "$PWD/deploy/grafana/dashboards:/var/lib/grafana/dashboards:ro" \
+            grafana/grafana:12.0.0
+          for i in $(seq 1 60); do curl -fsS localhost:3000/api/health >/dev/null 2>&1 && break; sleep 2; done
+          sleep 5
+          found=$(curl -fsS -u admin:admin 'localhost:3000/api/search?type=dash-db' \
+            | python3 -c 'import sys,json; print(" ".join(sorted(d["uid"] for d in json.load(sys.stdin))))')
+          echo "provisioned: $found"
+          for uid in telemetry-pipeline-health telemetry-interfaces-openconfig telemetry-interfaces-iosxr telemetry-bgp-openconfig; do
+            case " $found " in *" $uid "*) ;; *) echo "::error::dashboard $uid not provisioned"; docker logs grafana | tail -40; exit 1;; esac
+            curl -fsS -u admin:admin "localhost:3000/api/dashboards/uid/$uid" >/dev/null
+          done
+          if docker logs grafana 2>&1 | grep -i 'provisioning' | grep -iE 'level=error|failed'; then
+            echo "::error::Grafana reported provisioning errors"; exit 1
+          fi
+
+  # ---------------------------------------------------------------------------
   config-examples:
     name: example configs validate
     runs-on: ubuntu-latest

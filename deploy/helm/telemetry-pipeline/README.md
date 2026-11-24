@@ -35,6 +35,8 @@ secrets:
 
 inputPorts: []                         # gNMI is dial-in: no inbound ports needed
 serviceMonitor: {enabled: true}        # if you run the Prometheus Operator
+prometheusRule: {enabled: true}        # recommended alerts
+grafanaDashboards: {enabled: true}     # dashboards via the Grafana sidecar
 ```
 
 ## How it behaves
@@ -75,6 +77,10 @@ serviceMonitor: {enabled: true}        # if you run the Prometheus Operator
 | `dialoutService.loadBalancerSourceRanges` | `[]` | Restrict to device management subnets |
 | `serviceMonitor.enabled` | `false` | Create a Prometheus Operator ServiceMonitor |
 | `serviceMonitor.scrapeTelemetry` | `true` | Also scrape device telemetry (not only self-metrics) |
+| `prometheusRule.enabled` | `false` | Install the recommended alert rules as a PrometheusRule |
+| `prometheusRule.labels` | `{}` | e.g. `release: kube-prometheus-stack` so your Prometheus selects it |
+| `grafanaDashboards.enabled` | `false` | Install the four dashboards as ConfigMaps for the Grafana sidecar |
+| `grafanaDashboards.labels` | `{grafana_dashboard: "1"}` | Label the sidecar watches |
 | `podDisruptionBudget.enabled` | `false` | |
 | `replicaCount` | `1` | See *Scaling* |
 | `resources` | 250m / 256Mi request, 1Gi limit | |
