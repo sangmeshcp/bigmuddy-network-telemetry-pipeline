@@ -13,6 +13,10 @@ and exported metric names.
   Athena, Trino, ClickHouse and DuckDB) and `clickhouse` output (native
   protocol, auto-created MergeTree table). Both use one fixed analytical row
   layout, and retries never duplicate data.
+- `iceberg` output: appends to Apache Iceberg tables through a REST catalog
+  (Glue and SQL catalogs with build tags), with partitioning by day or hour
+  and idempotent commits. Verified against an Iceberg REST catalog and with
+  PyIceberg. Build with `-tags noiceberg` for a smaller binary.
 - Durable disk-backed output queues (`queue: {type: disk}`): survive restarts
   and destination outages.
 - `metric_types` processor: marks counters (OTLP monotonic Sums,

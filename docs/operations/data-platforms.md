@@ -6,6 +6,7 @@ tickets. The pipeline reaches data platforms in three ways:
 
 | Path | Latency | Reaches |
 |---|---|---|
+| [`iceberg`](../configuration/outputs.md#iceberg-apache-iceberg-tables) tables via a catalog | minutes | Snowflake, Databricks, BigQuery, Athena, Trino, Spark, Flink, Dremio, DuckDB, ClickHouse, **as native tables** |
 | [`parquet`](../configuration/outputs.md#parquet-data-lake-object-storage) files on object storage | minutes | Snowflake, Databricks, BigQuery, Athena, Trino, Spark, ClickHouse, DuckDB: anything that reads Parquet |
 | [`clickhouse`](../configuration/outputs.md#clickhouse) native | seconds | ClickHouse (self-hosted or Cloud) |
 | [`otlp`](../configuration/outputs.md#otlp-opentelemetry) / [`kafka`](../configuration/outputs.md#kafka-apache-kafka-redpanda) | seconds | OpenTelemetry Collector exporters; each platform's Kafka connector |
@@ -27,6 +28,28 @@ outputs:
     flush_interval: 5m
     queue: {type: disk, dir: /var/lib/pipeline/queue/lake, max_bytes: 21474836480}
 ```
+
+## Iceberg tables
+
+If you run an Iceberg catalog, prefer the `iceberg` output: every engine sees
+a proper table (schema, partitions, snapshots, time travel) and nothing needs
+loading.
+
+| Engine | How it reads the table |
+|---|---|
+| Snowflake | Catalog integration to your REST catalog (Polaris / Snowflake Open Catalog), then `CREATE ICEBERG TABLE … CATALOG = '<integration>' CATALOG_TABLE_NAME = 'telemetry'` |
+| Databricks | Tables in Unity Catalog are readable directly; external catalogs via Lakehouse Federation |
+| BigQuery | BigLake Iceberg tables / the BigLake metastore |
+| Athena, Trino, Starburst, Spark, Flink, Dremio | Iceberg connector pointed at the same catalog |
+| DuckDB | `INSTALL iceberg;` then `iceberg_scan(...)` or attach the REST catalog |
+| ClickHouse | `icebergS3(...)` table function or an Iceberg database engine |
+
+!!! info "What has been verified"
+    CI writes through an Apache Iceberg REST catalog with data on MinIO,
+    retries the batch (one snapshot results), and scans the table back.
+    A table written by the pipeline is also read by **PyIceberg**, an
+    independent Iceberg implementation, with schema, partition spec, snapshot
+    properties, all values and a filtered scan checked.
 
 ## Loading the Parquet lake
 

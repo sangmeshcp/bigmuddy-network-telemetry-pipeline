@@ -156,6 +156,20 @@ outputs:
     # sasl: {mechanism: SCRAM-SHA-512, username: pipeline, password: ${KAFKA_PASSWORD}}
     # tls: {enabled: true}
 
+  # Lakehouse: Apache Iceberg tables through a REST catalog (Snowflake,
+  # Databricks, BigQuery, Athena, Trino query them as native tables).
+  # - name: lakehouse
+  #   type: iceberg
+  #   namespace: network
+  #   catalog:
+  #     uri: https://catalog.example.com/api/catalog
+  #     warehouse: network_wh
+  #     credential_file: /run/secrets/pipeline/iceberg
+  #     properties: {scope: "PRINCIPAL_ROLE:ALL", s3.region: us-east-1}
+  #   batch_size: 200000
+  #   flush_interval: 5m
+  #   queue: {type: disk, dir: /var/lib/pipeline/queue/lakehouse}
+
   # Data lake: Parquet on S3-compatible storage (Snowflake, Databricks,
   # BigQuery, Athena, Trino, ClickHouse, DuckDB read it).
   # - name: lake

@@ -2,12 +2,16 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 IMAGE   ?= telemetry-pipeline
 
-.PHONY: all build test race cover lint generate image check-config integration smoke helm-lint dashboards chart-assets alerts-test dashboard-check clean
+.PHONY: all build build-slim test race cover lint generate image check-config integration smoke helm-lint dashboards chart-assets alerts-test dashboard-check clean
 
 all: lint test build
 
 build:
 	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/pipeline ./cmd/pipeline
+
+# Without the Iceberg output (Apache Arrow + AWS SDK): ~32 MiB instead of ~76 MiB.
+build-slim:
+	CGO_ENABLED=0 go build -trimpath -tags noiceberg -ldflags "$(LDFLAGS)" -o bin/pipeline ./cmd/pipeline
 
 test:
 	go test ./...

@@ -176,6 +176,73 @@ A missing bucket or denied access is a permanent error (the batch is
 dropped and logged); network errors and 5xx responses are retried.
 Self-metrics: `parquet_files_written_total`, `parquet_bytes_written_total`.
 
+## `iceberg`: Apache Iceberg tables
+
+Appends the [analytical rows](../concepts/data-model.md#analytical-row-layout)
+to an [Apache Iceberg](https://iceberg.apache.org/) table through a catalog.
+Snowflake, Databricks, BigQuery (BigLake), Athena, Trino/Starburst, Spark,
+Flink, Dremio, DuckDB and ClickHouse all query Iceberg tables **natively**:
+schema, partitions and snapshots come from the catalog, with no load jobs.
+
+```yaml
+- name: lakehouse
+  type: iceberg
+  namespace: network            # dotted for nested namespaces: network.raw
+  table: telemetry
+  partition: day                # day (default) or hour, on the timestamp
+  catalog:
+    type: rest
+    uri: https://catalog.example.com/api/catalog
+    warehouse: network_wh
+    credential_file: /run/secrets/pipeline/iceberg   # OAuth2 client_id:client_secret
+    properties:                 # passed to iceberg-go: catalog and file-IO settings
+      scope: PRINCIPAL_ROLE:ALL
+      s3.region: us-east-1
+  batch_size: 200000
+  flush_interval: 5m
+  queue: {type: disk, dir: /var/lib/pipeline/queue/lakehouse}
+```
+
+| Key | Default | Meaning |
+|---|---|---|
+| `namespace` | *required* | Iceberg namespace (`a.b` for nested) |
+| `table` | `telemetry` | |
+| `partition` | `day` | `day` or `hour` transform on `timestamp` |
+| `create_table` | `true` | Create the namespace and table if missing |
+| `location` | | Explicit location for a created table |
+| `catalog.type` | `rest` | `rest`; `glue` and `sql` need a build with `-tags iceberg_glue` / `iceberg_sql` |
+| `catalog.uri` | *required for rest* | Catalog endpoint |
+| `catalog.warehouse` | | Warehouse name or location, as your catalog expects |
+| `catalog.credential` / `credential_file` | | REST OAuth2 client credentials (`client_id:client_secret`) |
+| `catalog.token` / `token_file` | | REST bearer token |
+| `catalog.properties` | | Extra [iceberg-go properties](https://github.com/apache/iceberg-go), e.g. `s3.endpoint`, `s3.region`, `s3.access-key-id`, `s3.secret-access-key`, `s3.force-virtual-addressing`, `scope`, `rest.signing-name` |
+
+The REST catalog covers most deployments:
+
+| Catalog | Notes |
+|---|---|
+| Apache Polaris / Snowflake Open Catalog | OAuth2 `credential`, `scope: PRINCIPAL_ROLE:ALL` |
+| Databricks Unity Catalog | Iceberg REST endpoint of your workspace, OAuth token |
+| Project Nessie, Lakekeeper, Apache Gravitino | REST endpoint |
+| AWS S3 Tables, AWS Glue | Their Iceberg REST endpoints (SigV4 via `catalog.properties`); or Glue's native API with `-tags iceberg_glue` |
+
+**Created table.** Format version 2, Parquet data files with zstd, the
+analytical schema (`timestamp` as `timestamptz`, `tags` as
+`map<string,string>`), partitioned by `day(timestamp)` or
+`hour(timestamp)`.
+
+**Retries don't duplicate.** Each batch is one append commit whose snapshot
+summary records `telemetry.batch-id` (the batch's content fingerprint).
+Before appending, the last 64 snapshots are checked for it, so a batch
+retried after a commit that actually succeeded is skipped
+(`iceberg_duplicate_batches_skipped_total`). Commit conflicts with other
+writers are retried with fresh table metadata.
+
+!!! note "Binary size"
+    Iceberg support brings in Apache Arrow and the AWS SDK, roughly doubling
+    the binary (about 76 MiB). If you don't need it, build with
+    `-tags noiceberg` (or `make build-slim`) for a ~32 MiB binary.
+
 ## `clickhouse`
 
 Inserts the [analytical rows](../concepts/data-model.md#analytical-row-layout)
