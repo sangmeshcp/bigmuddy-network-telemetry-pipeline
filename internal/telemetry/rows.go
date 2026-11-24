@@ -1,6 +1,9 @@
 package telemetry
 
 import (
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
 	"math"
 	"sort"
 	"strconv"
@@ -111,3 +114,46 @@ func RowsOf(batch []*Metric) []Row {
 }
 
 func ptr[T any](v T) *T { return &v }
+
+// Fingerprint is a deterministic hash of a set of rows (as returned by
+// RowsOf, which sorts them). Sinks use it as an idempotency key: content-
+// addressed file names, insert-deduplication tokens. Don't hash EncodeBatch
+// output for this: it follows Go's randomised map iteration order.
+func Fingerprint(rows []Row) string {
+	h := sha256.New()
+	var buf []byte
+	for i := range rows {
+		r := &rows[i]
+		buf = buf[:0]
+		buf = binary.AppendVarint(buf, r.Timestamp.UnixNano())
+		for _, s := range []string{r.Source, r.Name, r.Field, r.MetricType, r.ValueType} {
+			buf = appendString(buf, s)
+		}
+		keys := make([]string, 0, len(r.Tags))
+		for k := range r.Tags {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		buf = binary.AppendUvarint(buf, uint64(len(keys)))
+		for _, k := range keys {
+			buf = appendString(appendString(buf, k), r.Tags[k])
+		}
+		if r.ValueDouble != nil {
+			buf = binary.LittleEndian.AppendUint64(append(buf, 1), math.Float64bits(*r.ValueDouble))
+		} else {
+			buf = append(buf, 0)
+		}
+		if r.ValueInt != nil {
+			buf = binary.AppendVarint(append(buf, 1), *r.ValueInt)
+		} else {
+			buf = append(buf, 0)
+		}
+		if r.ValueString != nil {
+			buf = appendString(append(buf, 1), *r.ValueString)
+		} else {
+			buf = append(buf, 0)
+		}
+		h.Write(buf)
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}

@@ -73,3 +73,23 @@ func eqp[T comparable](a, b *T) bool {
 	}
 	return *a == *b
 }
+
+func TestFingerprintDeterministic(t *testing.T) {
+	mk := func() []*Metric {
+		m := New("n", time.Unix(1, 0))
+		m.Tags = map[string]string{"source": "r", "a": "1", "b": "2", "c": "3"}
+		m.Fields = map[string]any{"x": 1.0, "y": int64(2), "z": "s", "w": uint64(3)}
+		return []*Metric{m}
+	}
+	first := Fingerprint(RowsOf(mk()))
+	for i := 0; i < 50; i++ { // map iteration order varies run to run
+		if Fingerprint(RowsOf(mk())) != first {
+			t.Fatal("fingerprint not deterministic")
+		}
+	}
+	other := mk()
+	other[0].Fields["x"] = 1.5
+	if Fingerprint(RowsOf(other)) == first {
+		t.Fatal("different content, same fingerprint")
+	}
+}
