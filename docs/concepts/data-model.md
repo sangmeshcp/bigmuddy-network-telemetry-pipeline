@@ -146,11 +146,47 @@ Using Metric 1 from above:
     Kafka records are keyed by `source` by default, so each device's data
     stays ordered within a partition.
 
+## Analytical row layout
+
+Warehouse and lakehouse sinks (`parquet`, `clickhouse`) store **one row per
+field** in a fixed schema (schema version 1):
+
+| Column | Type | Meaning |
+|---|---|---|
+| `timestamp` | timestamp (UTC) | Device sample time |
+| `source` | string | Device |
+| `name` | string | Metric name (schema path of the instance) |
+| `field` | string | Leaf path relative to `name` |
+| `tags` | map<string,string> | List keys, subscription, enrichment tags (everything except `source`) |
+| `metric_type` | string | `counter`, `gauge` or empty (see [`metric_types`](../configuration/processors.md#metric_types)) |
+| `value_type` | string | Original type: `int`, `uint`, `float`, `bool`, `string` |
+| `value_double` | double, nullable | Every numeric and bool value (bool as 0/1). Aggregate this. |
+| `value_int` | int64, nullable | Exact integers (and bools). Null for uint64 above 2⁶³−1. |
+| `value_string` | string, nullable | Strings, and the exact decimal text of uint64 values above 2⁶³−1 |
+
+Why long instead of one column per leaf? A new YANG model, a new leaf or a
+new device software release **never changes the table schema**, so there are
+no migrations and no failed loads. Columnar formats compress the repeated
+`name`/`field` values to almost nothing. Build wide views in the warehouse
+where you need them:
+
+```sql
+SELECT timestamp, source, tags['interface_name'] AS interface,
+       max(value_double) FILTER (WHERE field = 'state/counters/in-octets')  AS in_octets,
+       max(value_double) FILTER (WHERE field = 'state/counters/out-octets') AS out_octets
+FROM telemetry
+WHERE name = 'openconfig:/interfaces/interface'
+GROUP BY ALL;
+```
+
 ## Counters vs gauges
 
-Streaming telemetry doesn't say whether a leaf is a counter or a gauge. Every
-numeric value is exported as a gauge (untyped in Prometheus). Use `rate()`
-or `increase()` on counters at query time as usual:
+Streaming telemetry doesn't say whether a leaf is a counter or a gauge, so by
+default every numeric value is exported as a gauge (untyped in Prometheus).
+Add the [`metric_types`](../configuration/processors.md#metric_types)
+processor to mark counters: OTLP then exports monotonic Sums and Prometheus
+`# TYPE counter`. Either way, use `rate()` or `increase()` on counters at
+query time as usual:
 
 ```promql
 rate(interfaces_interface_state_counters_in_octets{source="core1"}[1m]) * 8   # bits/s

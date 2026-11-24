@@ -122,6 +122,60 @@ One JSON record per metric (format on [Data model](../concepts/data-model.md#how
     `kafka-topics.sh --create --topic network.telemetry --partitions 12 --replication-factor 3`.
     Producing to a missing topic fails and is retried, then dropped.
 
+## `parquet`: data lake (object storage)
+
+Writes [Apache Parquet](https://parquet.apache.org/) files in the
+[analytical row layout](../concepts/data-model.md#analytical-row-layout) to
+any S3-compatible store or a local directory. These files can be read by
+Snowflake, Databricks, BigQuery, Athena, Trino, Spark, ClickHouse and
+DuckDB; see [Data platforms](../operations/data-platforms.md) for recipes.
+
+```yaml
+- name: lake
+  type: parquet
+  url: s3://my-bucket/network          # or file:///var/lib/pipeline/lake
+  s3: {region: us-east-1}               # credentials from the AWS chain (IRSA, env, instance role)
+  batch_size: 200000                    # bigger files are cheaper to query
+  flush_interval: 1m
+  queue: {type: disk, dir: /var/lib/pipeline/queue/lake}   # recommended
+```
+
+| Key | Default | Meaning |
+|---|---|---|
+| `url` | *required* | `s3://bucket/prefix` or `file:///path` |
+| `table` | `telemetry` | Directory under the prefix |
+| `compression` | `zstd` | `zstd`, `snappy`, `none` |
+| `timestamp_unit` | `us` | `us` (widest compatibility, e.g. BigQuery), `ns`, `ms` |
+| `s3.endpoint` | `s3.amazonaws.com` | Any S3-compatible endpoint: MinIO, Cloudflare R2, `storage.googleapis.com` (GCS with HMAC keys), Ceph |
+| `s3.region` | | |
+| `s3.access_key`, `s3.secret_key` / `secret_key_file`, `s3.session_token` | | Static credentials. Leave empty to use the AWS chain: environment, web identity (EKS IRSA), shared files, instance/task role. |
+| `s3.path_style` | `false` | Required by MinIO and most self-hosted stores |
+| `s3.insecure` | `false` | Plain HTTP (local MinIO only) |
+| `s3.sse` | | `AES256` for server-side encryption |
+| `s3.storage_class` | | e.g. `STANDARD_IA` |
+| `s3.tls` | | Custom CA / mTLS for self-hosted endpoints |
+
+**Layout.** Files are Hive-partitioned by UTC date and hour of the device
+timestamp:
+
+```text
+s3://my-bucket/network/telemetry/dt=2026-11-24/hour=09/part-3f9c…e1.parquet
+```
+
+Each write produces one file per hour present in the batch. The file name is
+a hash of its content, so **a retried write replaces the same object instead
+of duplicating data**. Files are written atomically (S3 PUT, or temp file +
+rename locally), so readers never see a partial file.
+
+!!! tip "File size"
+    Query engines prefer files of tens to hundreds of MB. Size them with
+    `batch_size` and `flush_interval`, and use a disk queue so buffered data
+    survives restarts and outages.
+
+A missing bucket or denied access is a permanent error (the batch is
+dropped and logged); network errors and 5xx responses are retried.
+Self-metrics: `parquet_files_written_total`, `parquet_bytes_written_total`.
+
 ## `file`: JSON lines
 
 For debugging, or as a simple archive.
