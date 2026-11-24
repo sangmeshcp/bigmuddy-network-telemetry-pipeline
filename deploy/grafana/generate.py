@@ -164,7 +164,7 @@ def pipeline_health():
         timeseries(lay, "CPU", [target(f'rate(process_cpu_seconds_total{{{sel}}}[{R}])', "{{instance}}")], unit="percentunit"),
     ]
     return dashboard("telemetry-pipeline-health", "Telemetry pipeline: health", ["pipeline"],
-                     [query_var("instance", "Instance", "label_values(pipeline_input_metrics_total, instance)")],
+                     [query_var("instance", "Instance", "label_values(pipeline_router_queue_batches, instance)")],
                      panels, "Self-monitoring of the telemetry pipeline: ingest, delivery, drops, sessions and resources.")
 
 

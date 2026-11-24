@@ -219,3 +219,26 @@ func TestUnknownPluginType(t *testing.T) {
 		t.Fatal("expected unknown type error")
 	}
 }
+
+func TestSelfMetricsInitialisedAtZero(t *testing.T) {
+	_, reg := build(t, `
+inputs: [{name: quiet, type: test_gen}]
+outputs: [{name: a, type: test_rec}]
+`, 0, map[string]*recOutput{"a": {}})
+	// Before any traffic, every series exists at 0, so rate()-based alerts
+	// such as TelemetryNoIngest can fire for an input that never receives data.
+	for _, c := range []struct {
+		name   string
+		series int
+	}{
+		{"pipeline_input_metrics_total", 1},
+		{"pipeline_output_enqueued_total", 1},
+		{"pipeline_output_written_total", 1},
+		{"pipeline_output_write_errors_total", 1},
+		{"pipeline_output_dropped_total", 2}, // queue_full, write_failed
+	} {
+		if n, err := testutil.GatherAndCount(reg, c.name); err != nil || n != c.series {
+			t.Errorf("%s: %d series (err %v), want %d", c.name, n, err, c.series)
+		}
+	}
+}

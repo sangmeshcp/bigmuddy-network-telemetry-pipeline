@@ -113,3 +113,23 @@ tests:
               summary: "A device is sending compact GPB to xr"
               description: "Compact GPB can't be decoded. Change the device's destination-group encoding to self-describing-gpb."
               runbook_url: "https://sangameshpatil.com/bigmuddy-network-telemetry-pipeline/operations/troubleshooting/#cisco-mdt-dial-out"
+
+  # The pipeline initialises its counters at 0, so an input that has never
+  # received anything still has a series and this alert can fire.
+  - name: no ingest on a silent input
+    interval: 1m
+    input_series:
+      - series: 'pipeline_input_metrics_total{instance="p1",input="dialout"}'
+        values: '0x30'
+      - series: 'pipeline_input_metrics_total{instance="p1",input="busy"}'
+        values: '0+100x30'
+    alert_rule_test:
+      - {eval_time: 10m, alertname: TelemetryNoIngest, exp_alerts: []}
+      - eval_time: 20m
+        alertname: TelemetryNoIngest
+        exp_alerts:
+          - exp_labels: {severity: warning, instance: p1, input: dialout}
+            exp_annotations:
+              summary: "Input dialout on p1 has received no telemetry for 15m"
+              description: "The input is configured but no device is sending data. Check device reachability, credentials and subscriptions."
+              runbook_url: "https://sangameshpatil.com/bigmuddy-network-telemetry-pipeline/operations/troubleshooting/"

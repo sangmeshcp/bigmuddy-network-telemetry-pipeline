@@ -879,14 +879,14 @@
           "type": "prometheus",
           "uid": "${datasource}"
         },
-        "definition": "label_values(pipeline_input_metrics_total, instance)",
+        "definition": "label_values(pipeline_router_queue_batches, instance)",
         "hide": 0,
         "includeAll": true,
         "label": "Instance",
         "multi": true,
         "name": "instance",
         "query": {
-          "query": "label_values(pipeline_input_metrics_total, instance)",
+          "query": "label_values(pipeline_router_queue_batches, instance)",
           "refId": "instance-var"
         },
         "refresh": 2,
