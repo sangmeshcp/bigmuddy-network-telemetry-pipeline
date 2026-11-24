@@ -26,7 +26,7 @@ jobs:
           case "$ASSOC" in OWNER|MEMBER|COLLABORATOR) echo "exempt=true" >> "$GITHUB_OUTPUT"; echo "PR by $AUTHOR ($ASSOC): exempt"; exit 0;; esac
           if [ "$TYPE" = "Bot" ]; then echo "exempt=true" >> "$GITHUB_OUTPUT"; echo "PR by bot $AUTHOR: exempt"; exit 0; fi
           echo "exempt=false" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         if: steps.exempt.outputs.exempt != 'true'
         with:
           fetch-depth: 0
