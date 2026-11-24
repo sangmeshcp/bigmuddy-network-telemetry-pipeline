@@ -7,6 +7,7 @@ the code, conventions and how CI works, is in the docs:
 - [Testing & CI](docs/development/testing.md)
 - [Writing a plugin](docs/development/writing-plugins.md)
 - [Protobufs, releases & docs](docs/development/maintenance.md)
+- **[Roadmap](docs/about/roadmap.md)**: planned work; look for *good first issue* and *help wanted*
 
 Published version: <https://sangameshpatil.com/bigmuddy-network-telemetry-pipeline/>
 

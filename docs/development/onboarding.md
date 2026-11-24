@@ -129,13 +129,7 @@ flowchart LR
 
 ## 7. Good first issues
 
-Small, self-contained ideas that touch one package:
-
-- [ ] `filter`: add `include_sources` / `exclude_sources` shorthands.
-- [ ] `prometheus` output: optional `const_labels` added to every series.
-- [ ] `file` output: built-in size-based rotation.
-- [ ] `mdt-replay`: support JSON-encoded capture files with multiple messages.
-- [ ] Docs: a Grafana dashboard JSON for interface counters in `deploy/compose`.
-
-For bigger items see the roadmap in
-[Modernization](../about/modernization.md#3-plan-as-executed-and-roadmap).
+The [Roadmap](../about/roadmap.md) marks asks that suit newcomers, e.g.
+**RM-05** (value-mapping processor), **RM-16** (live tap endpoint),
+**RM-22** (rate processor) and **RM-03** (Grafana dashboards). Each comes
+with acceptance criteria, so you know when you're done.

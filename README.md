@@ -343,7 +343,9 @@ smoke test. CI runs all of them on every pull request; see
 Adding an input, processor or output takes one Go type and one `Register`
 call: [Writing a plugin](docs/development/writing-plugins.md).
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for how to submit changes.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for how to submit changes, and the
+**[Roadmap](docs/about/roadmap.md)** for what's planned. Items marked *good
+first issue* or *help wanted* are ready to pick up.
 
 ## License
 
