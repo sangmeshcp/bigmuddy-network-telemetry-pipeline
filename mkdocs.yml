@@ -1,0 +1,77 @@
+site_name: Network Telemetry Pipeline
+site_description: Collect streaming telemetry from network devices (gNMI, Cisco MDT) and deliver it to Prometheus, OpenTelemetry, InfluxDB and Kafka.
+site_url: https://sangmeshcp.github.io/bigmuddy-network-telemetry-pipeline/
+repo_url: https://github.com/sangmeshcp/bigmuddy-network-telemetry-pipeline
+repo_name: bigmuddy-network-telemetry-pipeline
+edit_uri: edit/master/docs/
+
+theme:
+  name: material
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - navigation.indexes
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.tabs.link
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      toggle: {icon: material/weather-night, name: Dark mode}
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      toggle: {icon: material/weather-sunny, name: Light mode}
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc: {permalink: true}
+  - pymdownx.details
+  - pymdownx.highlight: {anchor_linenums: true}
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tabbed: {alternate_style: true}
+  - pymdownx.tasklist: {custom_checkbox: true}
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+nav:
+  - Home: index.md
+  - Getting started:
+      - Quickstart (5 minutes): getting-started/quickstart.md
+      - Installation: getting-started/installation.md
+      - Connect your first device: getting-started/first-device.md
+  - Concepts:
+      - Architecture: concepts/architecture.md
+      - Data model: concepts/data-model.md
+  - Configuration:
+      - Overview: configuration/overview.md
+      - Inputs: configuration/inputs.md
+      - Processors: configuration/processors.md
+      - Outputs: configuration/outputs.md
+  - Operations:
+      - Deployment: operations/deployment.md
+      - Monitoring the pipeline: operations/monitoring.md
+      - Troubleshooting: operations/troubleshooting.md
+  - Development:
+      - Developer onboarding: development/onboarding.md
+      - Testing & CI: development/testing.md
+      - Writing a plugin: development/writing-plugins.md
+      - Protobufs, releases & docs: development/maintenance.md
+  - About:
+      - Modernization (2016 → 2026): about/modernization.md
+      - FAQ: about/faq.md

@@ -1,8 +1,6 @@
 module github.com/sangmeshcp/bigmuddy-network-telemetry-pipeline
 
-go 1.26.0
-
-toolchain go1.26.11
+go 1.26.11
 
 require (
 	github.com/openconfig/gnmi v0.14.1
