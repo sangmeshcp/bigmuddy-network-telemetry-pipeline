@@ -63,3 +63,50 @@ func TestCloneAndSeriesKey(t *testing.T) {
 		t.Fatalf("unexpected series key %q", m.SeriesKey())
 	}
 }
+
+func TestToFloatAndNormalize(t *testing.T) {
+	floats := map[any]float64{int64(-2): -2, uint64(3): 3, 1.5: 1.5, float32(0.5): 0.5, 7: 7,
+		int32(8): 8, uint32(9): 9, true: 1, false: 0}
+	for in, want := range floats {
+		if got, ok := ToFloat(in); !ok || got != want {
+			t.Errorf("ToFloat(%#v) = %v,%v", in, got, ok)
+		}
+	}
+	if _, ok := ToFloat("x"); ok {
+		t.Error("string must not convert")
+	}
+	norm := map[any]any{int(1): int64(1), int32(1): int64(1), int16(1): int64(1), int8(1): int64(1),
+		uint(1): uint64(1), uint32(1): uint64(1), uint16(1): uint64(1), uint8(1): uint64(1),
+		float32(0.5): 0.5, "s": "s", true: true, int64(2): int64(2)}
+	for in, want := range norm {
+		if got, ok := Normalize(in); !ok || got != want {
+			t.Errorf("Normalize(%#v) = %#v,%v", in, got, ok)
+		}
+	}
+	if got, ok := Normalize([]byte("b")); !ok || got != "b" {
+		t.Error("[]byte should become string")
+	}
+	if _, ok := Normalize(struct{}{}); ok {
+		t.Error("struct must not normalize")
+	}
+}
+
+func TestParseNumberAndJoin(t *testing.T) {
+	if ParseNumber("-5") != int64(-5) || ParseNumber("1e3") != 1000.0 || ParseNumber("abc") != "abc" {
+		t.Error("ParseNumber")
+	}
+	if JoinPath("", "b") != "b" || JoinPath("a", "") != "a" || JoinPath("a", "b") != "a/b" {
+		t.Error("JoinPath")
+	}
+	m := New("n", time.Now())
+	m.Tags["b"], m.Tags["a"] = "1", "2"
+	m.Fields["z"], m.Fields["y"] = 1, 2
+	if k := m.SortedTagKeys(); k[0] != "a" || m.SortedFieldKeys()[0] != "y" || m.Source() != "" {
+		t.Error("sorted keys / source")
+	}
+	f := map[string]any{}
+	FlattenJSON("", nil, f)
+	if f["value"] != true {
+		t.Errorf("top-level null: %v", f)
+	}
+}

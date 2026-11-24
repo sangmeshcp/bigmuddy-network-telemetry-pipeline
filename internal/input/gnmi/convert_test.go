@@ -115,6 +115,7 @@ func TestConvertJSONIETF(t *testing.T) {
 func TestConvertMisc(t *testing.T) {
 	n := &gpb.Notification{Update: []*gpb.Update{
 		{Path: mustPath(t, "/system/state/hostname"), Val: &gpb.TypedValue{Value: &gpb.TypedValue_StringVal{StringVal: "r1"}}},
+		//lint:ignore SA1019 decoding the deprecated type is the point of this test
 		{Path: mustPath(t, "/system/cpu/load"), Val: &gpb.TypedValue{Value: &gpb.TypedValue_DecimalVal{DecimalVal: &gpb.Decimal64{Digits: 1234, Precision: 2}}}},
 		{Path: mustPath(t, "/system/dns/servers"), Val: &gpb.TypedValue{Value: &gpb.TypedValue_LeaflistVal{LeaflistVal: &gpb.ScalarArray{
 			Element: []*gpb.TypedValue{{Value: &gpb.TypedValue_StringVal{StringVal: "1.1.1.1"}}, {Value: &gpb.TypedValue_StringVal{StringVal: "8.8.8.8"}}}}}}},

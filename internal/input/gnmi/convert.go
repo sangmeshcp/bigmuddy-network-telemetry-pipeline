@@ -103,11 +103,13 @@ func addValue(fields map[string]any, field string, v *gpb.TypedValue) bool {
 		fields[leaf(field)] = x.IntVal
 	case *gpb.TypedValue_UintVal:
 		fields[leaf(field)] = x.UintVal
-	case *gpb.TypedValue_FloatVal: //nolint:staticcheck // deprecated but still sent by some devices
+	case *gpb.TypedValue_FloatVal:
+		//lint:ignore SA1019 deprecated in gNMI 0.8 but still sent by older devices
 		fields[leaf(field)] = float64(x.FloatVal)
 	case *gpb.TypedValue_DoubleVal:
 		fields[leaf(field)] = x.DoubleVal
-	case *gpb.TypedValue_DecimalVal: //nolint:staticcheck // deprecated but still sent by some devices
+	case *gpb.TypedValue_DecimalVal:
+		//lint:ignore SA1019 deprecated in gNMI 0.8 but still sent by older devices
 		d := x.DecimalVal
 		fields[leaf(field)] = float64(d.GetDigits()) / math.Pow10(int(d.GetPrecision()))
 	case *gpb.TypedValue_BoolVal:

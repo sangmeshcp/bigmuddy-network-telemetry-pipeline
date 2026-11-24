@@ -118,15 +118,39 @@ fields: state/counters/in-octets=1234
 ## Development
 
 ```bash
-make lint test race     # gofmt, vet, tests (with race detector)
+make lint test race     # gofmt, vet, staticcheck, unit tests (+ race detector)
+make cover              # coverage report
+make integration        # real InfluxDB/Kafka/Prometheus/gNMI device (env-gated)
+make smoke              # build image, run it, replay captured IOS XR data
 make generate           # regenerate protos (buf, protoc-gen-go, protoc-gen-go-grpc)
-make image              # container image
 ```
+
+`go run ./cmd/mdt-replay -addr host:57500 file.kvgpb` replays recorded MDT
+messages into any running pipeline, acting as an IOS XR device.
+
+### Continuous integration
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every push
+and pull request:
+
+| Job | What it proves |
+|---|---|
+| lint | gofmt, `go mod tidy` clean, `go vet`, staticcheck |
+| unit (Linux, macOS) | all unit tests with the race detector; coverage in the job summary |
+| proto | `buf lint`, and committed generated code matches the `.proto` files |
+| integration-backends | writes to real **InfluxDB 2.7**, **Apache Kafka 3.9** and **Prometheus 3** (native OTLP), then reads the data back |
+| integration-device | subscribes over gNMI to a real network OS (**Nokia SR Linux** via containerlab) and checks live interface counters |
+| docker | builds the image, checks it runs as non-root, replays captured IOS XR telemetry into the container, verifies the exported series, and checks a clean exit on SIGTERM |
+| config-examples | every shipped config passes `-check` |
+| govulncheck | known vulnerabilities in dependencies |
 
 Layout:
 
 ```
 cmd/pipeline/            entry point, end-to-end test
+cmd/mdt-replay/          replay recorded MDT messages (test tool)
+integration/             tests against real backends and devices (-tags integration)
+scripts/smoke.sh         container/binary smoke test
 internal/config/         YAML loading, env expansion, secrets
 internal/pipeline/       plugin registry, router, per-output workers, self-metrics
 internal/telemetry/      the Metric model, naming, JSON flattening
