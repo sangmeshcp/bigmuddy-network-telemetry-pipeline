@@ -38,7 +38,7 @@ func Convert(n *gpb.Notification, base map[string]string) (ms []*telemetry.Metri
 	var order []string
 
 	for _, u := range n.GetUpdate() {
-		elems := append(append([]*gpb.PathElem{}, prefix.GetElem()...), u.GetPath().GetElem()...)
+		elems := append(append([]*gpb.PathElem{}, PathElems(prefix)...), PathElems(u.GetPath())...)
 		origin := u.GetPath().GetOrigin()
 		if origin == "" {
 			origin = prefix.GetOrigin()
@@ -91,6 +91,33 @@ func Convert(n *gpb.Notification, base map[string]string) (ms []*telemetry.Metri
 		}
 	}
 	return ms, unsupported
+}
+
+// PathElems returns p's elements. Devices implementing gNMI < 0.4 send the
+// deprecated string form (Path.element, e.g. "interface[name=Eth1]")
+// instead of structured PathElems; both are accepted. Unparseable legacy
+// elements are kept verbatim as names.
+func PathElems(p *gpb.Path) []*gpb.PathElem {
+	if p == nil {
+		return nil
+	}
+	if len(p.GetElem()) > 0 {
+		return p.GetElem()
+	}
+	//lint:ignore SA1019 legacy field still sent by pre-0.4 gNMI implementations
+	legacy := p.GetElement()
+	if len(legacy) == 0 {
+		return nil
+	}
+	out := make([]*gpb.PathElem, 0, len(legacy))
+	for _, s := range legacy {
+		pe, err := parseElem(s)
+		if err != nil {
+			pe = &gpb.PathElem{Name: s}
+		}
+		out = append(out, pe)
+	}
+	return out
 }
 
 // addValue decodes a TypedValue into fields. JSON values are flattened.

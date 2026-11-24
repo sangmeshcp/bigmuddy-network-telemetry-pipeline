@@ -4,7 +4,7 @@
 # Run:    docker run --rm -v $PWD/pipeline.yaml:/etc/pipeline/pipeline.yaml \
 #           -p 9180:9180 -p 9273:9273 -p 57500:57500 telemetry-pipeline
 
-FROM golang:1.26 AS build
+FROM golang:1.26.11 AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download

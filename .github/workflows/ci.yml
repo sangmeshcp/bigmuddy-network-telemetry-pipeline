@@ -2,8 +2,16 @@ name: ci
 
 on:
   push:
+    branches: [master, main]
   pull_request:
+  schedule:
+    - cron: "17 4 * * 1"   # weekly: also runs the optional real-device job
   workflow_dispatch:
+    inputs:
+      real_device:
+        description: "Also test gNMI against a real NOS (Nokia SR Linux)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -21,8 +29,8 @@ jobs:
     name: lint (gofmt, vet, staticcheck)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with: {go-version-file: go.mod}
       - name: gofmt
         run: test -z "$(gofmt -l .)" || (gofmt -d .; exit 1)
@@ -42,8 +50,8 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with: {go-version-file: go.mod}
       - name: test (race, coverage)
         run: go test -race -count=1 -covermode=atomic -coverprofile=coverage.out ./...
@@ -57,7 +65,7 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           go tool cover -func=coverage.out | tail -1
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         if: matrix.os == 'ubuntu-latest'
         with:
           name: coverage
@@ -68,8 +76,8 @@ jobs:
     name: proto (lint + generated code up to date)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with: {go-version-file: go.mod}
       - name: install generators (versions match committed code)
         run: |
@@ -88,8 +96,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: unit
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with: {go-version-file: go.mod}
       - name: start InfluxDB 2, Kafka (KRaft), Prometheus 3
         run: |
@@ -122,14 +130,38 @@ jobs:
         run: for c in influxdb kafka prometheus; do echo "=== $c"; docker logs $c 2>&1 | tail -80; done
 
   # ---------------------------------------------------------------------------
+  integration-gnmi:
+    name: integration (gNMI, OpenConfig reference target, mTLS)
+    runs-on: ubuntu-latest
+    needs: unit
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with: {go-version-file: go.mod}
+      - name: start OpenConfig reference gNMI target (fake_server)
+        run: scripts/gnmi-reference-target.sh start > "$RUNNER_TEMP/gnmi.env"
+      - name: gNMI integration test
+        run: |
+          source "$RUNNER_TEMP/gnmi.env"
+          go test -tags integration -count=1 -v -run TestGNMITarget ./integration/
+      - name: target log on failure
+        if: failure()
+        run: cat "${TMPDIR:-/tmp}/gnmi-reference-target/server.log" || true
+      - name: stop target
+        if: always()
+        run: scripts/gnmi-reference-target.sh stop
+
+  # Optional: the same test against a real network OS. Not on the PR path
+  # (vendor image, slow boot); runs weekly and on manual dispatch.
   integration-device:
-    name: integration (gNMI against Nokia SR Linux)
+    name: integration (gNMI, real NOS - Nokia SR Linux)
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.real_device)
     runs-on: ubuntu-latest
     needs: unit
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with: {go-version-file: go.mod}
       - name: install containerlab
         run: bash -c "$(curl -sL https://get.containerlab.dev)"
@@ -140,7 +172,8 @@ jobs:
           GNMI_TARGET: clab-itest-srl:57400
           GNMI_USERNAME: admin
           GNMI_PASSWORD: NokiaSrl1!
-        run: go test -tags integration -count=1 -v -run TestGNMIRealDevice ./integration/
+          GNMI_PATH: /interface/statistics
+        run: go test -tags integration -count=1 -v -run TestGNMITarget ./integration/
       - name: device logs on failure
         if: failure()
         run: |
@@ -156,8 +189,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: unit
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with: {go-version-file: go.mod}
       - uses: docker/setup-buildx-action@v3
       - name: build image
@@ -194,8 +227,8 @@ jobs:
     name: example configs validate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with: {go-version-file: go.mod}
       - run: make build
       - run: |
@@ -208,7 +241,7 @@ jobs:
     name: govulncheck
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with: {go-version-file: go.mod}
       - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...

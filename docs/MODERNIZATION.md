@@ -96,6 +96,24 @@ numbers.
 7. Outputs: Prometheus exporter, OTLP (gRPC/HTTP), InfluxDB (v1/v2/v3), Kafka, file.
 8. Tests for every package, including real IOS XR captures from the original repo, an in-process gNMI target, an in-memory Kafka cluster and an end-to-end binary test. Docker (distroless), Compose lab, Kubernetes manifest, CI.
 
+**Testing strategy (vendor-neutral first)**
+
+gNMI is a standard, so conformance is tested against the standard's own
+reference implementation rather than any vendor's: the OpenConfig project's
+fake gNMI target (`github.com/openconfig/gnmi/testing/fake`).
+
+* *In-process conformance suite* (every `go test`): scripted streams covering
+  every `TypedValue` encoding, origin/target prefixes, `JSON_IETF`
+  containers, legacy `Path.element` paths (gNMI < 0.4), delete-only
+  notifications and `sync_response`; plus a paced live stream over TLS. It
+  also checks the `SubscribeRequest` the target recorded. This suite found
+  that legacy string paths were being dropped — now fixed.
+* *Out-of-process* (CI `integration-gnmi`): the standalone reference
+  `fake_server` with **mutual TLS** (`scripts/gnmi-reference-target.sh`).
+* *Real NOS* (optional, weekly/manual): the same test against Nokia SR
+  Linux via containerlab. Point `GNMI_TARGET`/`GNMI_PATH` at any vendor's
+  device to run it there.
+
 **Recommended next steps**
 
 * **gNMI dial-out** (`gnmi.proto` server side / `grpctunnel`) for devices behind NAT.

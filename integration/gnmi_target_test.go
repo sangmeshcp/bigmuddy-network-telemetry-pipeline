@@ -26,11 +26,19 @@ func (c chanSink) Emit(ctx context.Context, b []*telemetry.Metric) error {
 	return nil
 }
 
-// TestGNMIRealDevice subscribes to a real network OS (Nokia SR Linux in CI,
-// started with containerlab) and checks that interface counters arrive and
-// are shaped correctly. Works against any gNMI device given a path that
-// exists on it.
-func TestGNMIRealDevice(t *testing.T) {
+// TestGNMITarget subscribes to any gNMI target over TLS and checks that
+// interface counters stream in, correctly shaped, sample after sample.
+//
+// In CI the target is the OpenConfig reference implementation
+// (scripts/gnmi-reference-target.sh, mutual TLS) — vendor-neutral and
+// always run. The same test can be pointed at real hardware or a NOS
+// container from any vendor by setting GNMI_TARGET/GNMI_PATH; the optional
+// "device" CI job does that with Nokia SR Linux.
+//
+// GNMI_TLS_CA verifies the target (otherwise verification is skipped, as
+// for lab devices with self-signed certificates); GNMI_TLS_CERT/KEY enable
+// mTLS.
+func TestGNMITarget(t *testing.T) {
 	e := env(t, "GNMI_TARGET", "GNMI_USERNAME", "GNMI_PASSWORD")
 	path := envOr("GNMI_PATH", "/interface/statistics")
 	enc := envOr("GNMI_ENCODING", "json_ietf")
@@ -40,7 +48,7 @@ func TestGNMIRealDevice(t *testing.T) {
     targets: [{address: "`+e["GNMI_TARGET"]+`", name: dut}]
     username: "`+e["GNMI_USERNAME"]+`"
     password: "${ITEST_GNMI_PASSWORD}"
-    tls: {enabled: true, insecure_skip_verify: true}
+    tls: `+tlsYAML()+`
     encoding: `+enc+`
     redial_min: 2s
     redial_max: 5s
@@ -68,14 +76,20 @@ func TestGNMIRealDevice(t *testing.T) {
 				t.Logf("metric without interface_name: %s %v", m.Name, m.Tags)
 				continue
 			}
-			var numeric bool
+			// Devices may split leaves across notifications; only the
+			// counter-bearing metrics are checked for numeric decoding.
+			var numeric, hasOctets bool
 			for k, v := range m.Fields {
-				if _, ok := telemetry.ToFloat(v); ok && strings.HasSuffix(k, "in-octets") {
-					numeric = true
+				if strings.HasSuffix(k, "in-octets") {
+					hasOctets = true
+					_, numeric = telemetry.ToFloat(v)
 				}
 			}
+			if !hasOctets {
+				continue
+			}
 			if !numeric {
-				t.Fatalf("no numeric in-octets field in %s: %v", m.Name, m.Fields)
+				t.Fatalf("in-octets not numeric in %s: %v", m.Name, m.Fields)
 			}
 			samples[ifname]++
 			// Two samples of the same interface prove the stream is live
@@ -91,6 +105,18 @@ func TestGNMIRealDevice(t *testing.T) {
 }
 
 var getenv = os.Getenv
+
+func tlsYAML() string {
+	ca := getenv("GNMI_TLS_CA")
+	if ca == "" {
+		return "{enabled: true, insecure_skip_verify: true}"
+	}
+	y := "{enabled: true, ca_file: \"" + ca + "\", server_name: localhost"
+	if c, k := getenv("GNMI_TLS_CERT"), getenv("GNMI_TLS_KEY"); c != "" && k != "" {
+		y += ", cert_file: \"" + c + "\", key_file: \"" + k + "\""
+	}
+	return y + "}"
+}
 
 func envOr(k, d string) string {
 	if v := getenv(k); v != "" {

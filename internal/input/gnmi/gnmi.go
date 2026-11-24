@@ -324,11 +324,11 @@ func (in *Input) subscriptionFor(n *gpb.Notification) string {
 		return in.cfg.Subscriptions[0].Name
 	}
 	var elems []string
-	for _, e := range n.GetPrefix().GetElem() {
+	for _, e := range PathElems(n.GetPrefix()) {
 		elems = append(elems, stripModule(e.GetName()))
 	}
 	if u := n.GetUpdate(); len(u) > 0 {
-		for _, e := range u[0].GetPath().GetElem() {
+		for _, e := range PathElems(u[0].GetPath()) {
 			elems = append(elems, stripModule(e.GetName()))
 		}
 	}

@@ -120,7 +120,8 @@ fields: state/counters/in-octets=1234
 ```bash
 make lint test race     # gofmt, vet, staticcheck, unit tests (+ race detector)
 make cover              # coverage report
-make integration        # real InfluxDB/Kafka/Prometheus/gNMI device (env-gated)
+make integration        # real InfluxDB/Kafka/Prometheus/gNMI target (env-gated)
+eval "$(scripts/gnmi-reference-target.sh start)"   # vendor-neutral gNMI target with mTLS
 make smoke              # build image, run it, replay captured IOS XR data
 make generate           # regenerate protos (buf, protoc-gen-go, protoc-gen-go-grpc)
 ```
@@ -136,10 +137,11 @@ and pull request:
 | Job | What it proves |
 |---|---|
 | lint | gofmt, `go mod tidy` clean, `go vet`, staticcheck |
-| unit (Linux, macOS) | all unit tests with the race detector; coverage in the job summary |
+| unit (Linux, macOS) | all unit tests with the race detector, including the in-process gNMI **conformance suite** against the OpenConfig reference target (every TypedValue, JSON_IETF, legacy paths, deletes, sync, live TLS stream); coverage in the job summary |
 | proto | `buf lint`, and committed generated code matches the `.proto` files |
 | integration-backends | writes to real **InfluxDB 2.7**, **Apache Kafka 3.9** and **Prometheus 3** (native OTLP), then reads the data back |
-| integration-device | subscribes over gNMI to a real network OS (**Nokia SR Linux** via containerlab) and checks live interface counters |
+| integration-gnmi | subscribes over **mutual TLS** to the **OpenConfig reference gNMI target** (`fake_server` from the gNMI spec authors) running as a separate process — vendor-neutral |
+| integration-device *(weekly / manual)* | the same test against a real network OS (Nokia SR Linux via containerlab) |
 | docker | builds the image, checks it runs as non-root, replays captured IOS XR telemetry into the container, verifies the exported series, and checks a clean exit on SIGTERM |
 | config-examples | every shipped config passes `-check` |
 | govulncheck | known vulnerabilities in dependencies |
