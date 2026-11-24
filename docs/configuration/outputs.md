@@ -95,7 +95,11 @@ retried.
 
 ## `kafka`: Apache Kafka / Redpanda
 
-One JSON record per metric (format on [Data model](../concepts/data-model.md#how-each-output-represents-a-metric)).
+One JSON record per metric by default (format on
+[Data model](../concepts/data-model.md#how-each-output-represents-a-metric)),
+or, with `format: avro`, one Avro record per
+[analytical row](../concepts/data-model.md#analytical-row-layout) with its
+schema in a Schema Registry (see [below](#avro-and-schema-registry)).
 
 ```yaml
 - name: bus
@@ -115,12 +119,45 @@ One JSON record per metric (format on [Data model](../concepts/data-model.md#how
 | `client_id` | `telemetry-pipeline` | |
 | `sasl` | | `mechanism`: `PLAIN`, `SCRAM-SHA-256` or `SCRAM-SHA-512`; plus `username` and `password` / `password_file` |
 | `tls` | disabled | |
+| `format` | `json` | `json` or `avro` |
+| `schema_registry.url` | *required with avro* | Confluent-compatible registry: Confluent Platform / Cloud, Redpanda, Karapace, Apicurio (`/apis/ccompat/v7`) |
+| `schema_registry.subject` | `<topic>-value` | Subject the schema is registered under (TopicNameStrategy by default) |
+| `schema_registry.username`, `password` / `password_file` | | Basic auth (Confluent Cloud: API key and secret) |
+| `schema_registry.token` / `token_file` | | Bearer token, instead of basic auth |
+| `schema_registry.tls` | | Same options as the [`tls` block](overview.md#the-tls-block) |
 
 !!! warning "Create the topic first"
     The producer does not ask the brokers to auto-create topics. Create it
     beforehand, e.g.
     `kafka-topics.sh --create --topic network.telemetry --partitions 12 --replication-factor 3`.
     Producing to a missing topic fails and is retried, then dropped.
+
+### Avro and Schema Registry
+
+`format: avro` is for loading Kafka into a data platform with its own
+connector and no custom code: the Snowflake Kafka connector, the Databricks /
+Spark `from_avro` reader, the BigQuery and S3 sink connectors, and the
+ClickHouse Kafka engine (`kafka_format = 'AvroConfluent'`).
+
+```yaml
+- name: rows
+  type: kafka
+  brokers: [kafka-1:9092]
+  topic: network.telemetry.rows
+  format: avro
+  schema_registry: {url: "https://schema-registry:8081", username: pipeline, password_file: /run/secrets/sr}
+```
+
+- Each record is one analytical row (one field of one metric), in the
+  Confluent wire format: a zero byte, the 4-byte schema ID, then Avro binary.
+  `timestamp` is `timestamp-micros`; the value columns are nullable unions.
+- The schema is registered once, on the first write, so the pipeline starts
+  even while the registry is down. Later schema versions only add fields with
+  defaults, which keeps them `BACKWARD` compatible.
+- If the registry rejects the schema (bad credentials, or an incompatible
+  schema already on the subject), the batch fails permanently. Use a new
+  topic or a `subject` of its own instead of reusing a JSON topic.
+- Keys follow `key:` as plain strings (`source` by default).
 
 ## `parquet`: data lake (object storage)
 

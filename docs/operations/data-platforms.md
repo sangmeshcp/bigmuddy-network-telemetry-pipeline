@@ -9,7 +9,8 @@ tickets. The pipeline reaches data platforms in three ways:
 | [`iceberg`](../configuration/outputs.md#iceberg-apache-iceberg-tables) tables via a catalog | minutes | Snowflake, Databricks, BigQuery, Athena, Trino, Spark, Flink, Dremio, DuckDB, ClickHouse, **as native tables** |
 | [`parquet`](../configuration/outputs.md#parquet-data-lake-object-storage) files on object storage | minutes | Snowflake, Databricks, BigQuery, Athena, Trino, Spark, ClickHouse, DuckDB: anything that reads Parquet |
 | [`clickhouse`](../configuration/outputs.md#clickhouse) native | seconds | ClickHouse (self-hosted or Cloud) |
-| [`otlp`](../configuration/outputs.md#otlp-opentelemetry) / [`kafka`](../configuration/outputs.md#kafka-apache-kafka-redpanda) | seconds | OpenTelemetry Collector exporters; each platform's Kafka connector |
+| [`kafka`](../configuration/outputs.md#avro-and-schema-registry) with `format: avro` | seconds | Each platform's own Kafka connector: Snowflake, Databricks, BigQuery, ClickHouse Kafka engine, S3 / Iceberg sink connectors |
+| [`otlp`](../configuration/outputs.md#otlp-opentelemetry) | seconds | OpenTelemetry Collector exporters |
 
 All analytical sinks share one [table layout](../concepts/data-model.md#analytical-row-layout),
 so queries work the same everywhere.
@@ -159,10 +160,75 @@ The examples assume files under `s3://my-bucket/network/telemetry/`.
     GROUP BY ALL;
     ```
 
+## Through Kafka (Avro + Schema Registry)
+
+Use [`format: avro`](../configuration/outputs.md#avro-and-schema-registry)
+when the platform team already runs Kafka and Kafka Connect. The records
+carry their schema ID, so connectors type every column without
+configuration.
+
+=== "ClickHouse Kafka engine"
+
+    ```sql
+    CREATE TABLE telemetry_queue (
+        timestamp DateTime64(6, 'UTC'), source String, name String, field String,
+        tags Map(String, String), metric_type String, value_type String,
+        value_double Nullable(Float64), value_int Nullable(Int64), value_string Nullable(String)
+    ) ENGINE = Kafka SETTINGS
+        kafka_broker_list = 'kafka-1:9092',
+        kafka_topic_list = 'network.telemetry.rows',
+        kafka_group_name = 'clickhouse',
+        kafka_format = 'AvroConfluent',
+        format_avro_schema_registry_url = 'http://schema-registry:8081';
+
+    CREATE MATERIALIZED VIEW telemetry_mv TO telemetry AS SELECT * FROM telemetry_queue;
+    ```
+
+    `telemetry` is a MergeTree table such as the one the `clickhouse` output
+    creates. CI decodes this output's records with ClickHouse's
+    `AvroConfluent` reader against Redpanda's registry.
+
+=== "Snowflake"
+
+    Snowflake Kafka connector (Kafka Connect) with Snowpipe Streaming:
+
+    ```properties
+    connector.class=com.snowflake.kafka.connector.SnowflakeSinkConnector
+    topics=network.telemetry.rows
+    snowflake.ingestion.method=SNOWPIPE_STREAMING
+    snowflake.enable.schematization=true
+    value.converter=io.confluent.connect.avro.AvroConverter
+    value.converter.schema.registry.url=https://schema-registry:8081
+    key.converter=org.apache.kafka.connect.storage.StringConverter
+    ```
+
+    With schematization, each Avro field becomes a column.
+
+=== "Databricks"
+
+    ```python
+    from pyspark.sql.avro.functions import from_avro
+    rows = (spark.readStream.format("kafka")
+        .option("kafka.bootstrap.servers", "kafka-1:9092")
+        .option("subscribe", "network.telemetry.rows").load()
+        .select(from_avro("value", options={"mode": "PERMISSIVE"},
+                          subject="network.telemetry.rows-value",
+                          schemaRegistryAddress="https://schema-registry:8081").alias("r"))
+        .select("r.*"))
+    rows.writeStream.toTable("network.telemetry")
+    ```
+
+=== "BigQuery / S3 / Iceberg"
+
+    Any Kafka Connect sink with `value.converter=io.confluent.connect.avro.AvroConverter`
+    works: the BigQuery sink connector, the Confluent S3 sink
+    (`format.class=io.confluent.connect.s3.format.parquet.ParquetFormat`), or
+    the Apache Iceberg sink connector.
+
 ## Choosing between paths
 
 - **Minutes of latency are fine; many consumers:** Parquet on object storage
   is the cheapest and most portable option. Every platform reads it.
 - **Real-time operational dashboards on SQL:** the native ClickHouse output.
-- **You already run a Kafka platform:** the Kafka output plus your
-  platform's connector.
+- **You already run a Kafka platform:** the Kafka output with
+  `format: avro`, plus your platform's connector.

@@ -148,8 +148,9 @@ Using Metric 1 from above:
 
 ## Analytical row layout
 
-Warehouse and lakehouse sinks (`parquet`, `clickhouse`) store **one row per
-field** in a fixed schema (schema version 1):
+Warehouse and lakehouse sinks (`parquet`, `iceberg`, `clickhouse`, and
+`kafka` with `format: avro`) store **one row per field** in a fixed schema
+(schema version 1):
 
 | Column | Type | Meaning |
 |---|---|---|

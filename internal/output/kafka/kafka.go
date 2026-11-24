@@ -1,6 +1,9 @@
 // Package kafka publishes metrics to Apache Kafka (or Redpanda, MSK,
-// Confluent Cloud, Event Hubs) as JSON records, one per Metric, keyed by
-// device so a device's data stays ordered within a partition.
+// Confluent Cloud, Event Hubs), keyed by device so a device's data stays
+// ordered within a partition. Records are either JSON (one per Metric) or,
+// with format: avro, Schema Registry-framed Avro analytical rows (one per
+// field) that platform Kafka connectors (Snowflake, Databricks, ClickHouse,
+// BigQuery, S3 sink) load without custom code.
 //
 // It uses franz-go, replacing Shopify/sarama + the deprecated
 // bsm/sarama-cluster used in 2016, and adds idempotent production, zstd
@@ -48,6 +51,10 @@ type Config struct {
 	ClientID    string         `yaml:"client_id"`
 	SASL        *SASL          `yaml:"sasl"`
 	TLS         tlsutil.Config `yaml:"tls"`
+	// Format is json (default: one document per Metric) or avro (one
+	// analytical row per field, Confluent wire format).
+	Format         string          `yaml:"format"`
+	SchemaRegistry *SchemaRegistry `yaml:"schema_registry"`
 }
 
 // Record is the JSON document written per metric.
@@ -65,11 +72,12 @@ type Output struct {
 	cfg    Config
 	client *kgo.Client
 	log    *slog.Logger
+	avro   *avroEncoder
 }
 
 // New builds the producer. Brokers are contacted lazily.
 func New(p *config.Plugin, env pipeline.Env) (pipeline.Output, error) {
-	c := Config{Key: "source", Compression: "zstd", Acks: "all", ClientID: "telemetry-pipeline"}
+	c := Config{Key: "source", Compression: "zstd", Acks: "all", ClientID: "telemetry-pipeline", Format: "json"}
 	if err := p.Decode(&c); err != nil {
 		return nil, err
 	}
@@ -78,6 +86,20 @@ func New(p *config.Plugin, env pipeline.Env) (pipeline.Output, error) {
 	}
 	if c.Key != "source" && c.Key != "name" && c.Key != "none" {
 		return nil, fmt.Errorf("key must be source, name or none")
+	}
+	var enc *avroEncoder
+	switch c.Format {
+	case "json":
+		if c.SchemaRegistry != nil {
+			return nil, errors.New("schema_registry is only used with format: avro")
+		}
+	case "avro":
+		var err error
+		if enc, err = newAvroEncoder(c.SchemaRegistry, c.Topic); err != nil {
+			return nil, err
+		}
+	default:
+		return nil, fmt.Errorf("format must be json or avro")
 	}
 	opts := []kgo.Opt{
 		kgo.SeedBrokers(c.Brokers...),
@@ -140,11 +162,14 @@ func New(p *config.Plugin, env pipeline.Env) (pipeline.Output, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Output{cfg: c, client: client, log: env.Logger}, nil
+	return &Output{cfg: c, client: client, log: env.Logger, avro: enc}, nil
 }
 
 // Write produces a batch and waits for acknowledgement.
 func (o *Output) Write(ctx context.Context, batch []*telemetry.Metric) error {
+	if o.avro != nil {
+		return o.writeAvro(ctx, batch)
+	}
 	recs := make([]*kgo.Record, 0, len(batch))
 	for _, m := range batch {
 		val, err := json.Marshal(Record{Name: m.Name, Tags: m.Tags, Fields: m.Fields, Timestamp: m.Timestamp, Kinds: m.Kinds})
@@ -159,6 +184,29 @@ func (o *Output) Write(ctx context.Context, batch []*telemetry.Metric) error {
 			r.Key = []byte(m.Name)
 		}
 		recs = append(recs, r)
+	}
+	return o.client.ProduceSync(ctx, recs...).FirstErr()
+}
+
+func (o *Output) writeAvro(ctx context.Context, batch []*telemetry.Metric) error {
+	rows := telemetry.RowsOf(batch)
+	if len(rows) == 0 {
+		return nil
+	}
+	vals, err := o.avro.encode(ctx, rows)
+	if err != nil {
+		return err
+	}
+	recs := make([]*kgo.Record, len(rows))
+	for i, r := range rows {
+		rec := &kgo.Record{Value: vals[i], Timestamp: r.Timestamp}
+		switch o.cfg.Key {
+		case "source":
+			rec.Key = []byte(r.Source)
+		case "name":
+			rec.Key = []byte(r.Name)
+		}
+		recs[i] = rec
 	}
 	return o.client.ProduceSync(ctx, recs...).FirstErr()
 }

@@ -17,6 +17,10 @@ and exported metric names.
   (Glue and SQL catalogs with build tags), with partitioning by day or hour
   and idempotent commits. Verified against an Iceberg REST catalog and with
   PyIceberg. Build with `-tags noiceberg` for a smaller binary.
+- `kafka` output `format: avro`: analytical rows as Avro in the Confluent
+  wire format, schema registered in a Schema Registry, ready for the
+  Snowflake, Databricks, BigQuery and ClickHouse Kafka connectors. Verified
+  against Redpanda, with ClickHouse decoding the records.
 - Durable disk-backed output queues (`queue: {type: disk}`): survive restarts
   and destination outages.
 - `metric_types` processor: marks counters (OTLP monotonic Sums,

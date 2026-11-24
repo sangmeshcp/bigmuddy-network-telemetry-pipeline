@@ -252,7 +252,10 @@ openconfig:/interfaces/interface,interface_name=Ethernet1,source=core1 state/cou
 JSON records keyed by device, so each device's data stays ordered within a
 partition. Supports zstd/lz4/snappy/gzip, idempotent production, SASL
 (PLAIN/SCRAM) and TLS. Kafka is the bus for feeding Elasticsearch, Splunk,
-Flink, data lakes or your own consumers.
+Flink, data lakes or your own consumers. With `format: avro` it writes
+analytical rows as Avro with their schema in a Schema Registry (Confluent,
+Redpanda, Karapace, Apicurio), for the Snowflake, Databricks, BigQuery and
+ClickHouse Kafka connectors.
 
 ```yaml
 outputs:
