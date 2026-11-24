@@ -1,6 +1,6 @@
 site_name: Network Telemetry Pipeline
 site_description: Collect streaming telemetry from network devices (gNMI, Cisco MDT) and deliver it to Prometheus, OpenTelemetry, InfluxDB and Kafka.
-site_url: https://sangmeshcp.github.io/bigmuddy-network-telemetry-pipeline/
+site_url: https://sangameshpatil.com/bigmuddy-network-telemetry-pipeline/
 repo_url: https://github.com/sangmeshcp/bigmuddy-network-telemetry-pipeline
 repo_name: bigmuddy-network-telemetry-pipeline
 edit_uri: edit/master/docs/

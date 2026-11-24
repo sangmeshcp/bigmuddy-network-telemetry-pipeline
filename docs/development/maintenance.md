@@ -84,9 +84,16 @@ python3 -m venv .venv
 - **Push to `master`**: builds and deploys to GitHub Pages.
 
 **One-time repository setup** (needs admin): **Settings → Pages → Build and
-deployment → Source: GitHub Actions**. After the next merge to `master` the
-site is live at
-<https://sangmeshcp.github.io/bigmuddy-network-telemetry-pipeline/>.
+deployment → Source: GitHub Actions**. Don't use the suggested Jekyll or
+Static HTML workflows; `docs.yml` is the publishing workflow.
+
+The site is live at <https://sangameshpatil.com/bigmuddy-network-telemetry-pipeline/>.
+The owner's account has a custom Pages domain, so the `github.io` address
+redirects there. `site_url` in `mkdocs.yml` must match the live address,
+because canonical links and the sitemap are built from it.
+
+To publish without a docs change, run **Actions → docs → Run workflow** on
+`master`.
 
 ### Writing docs
 

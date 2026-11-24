@@ -8,7 +8,7 @@ the code, conventions and how CI works, is in the docs:
 - [Writing a plugin](docs/development/writing-plugins.md)
 - [Protobufs, releases & docs](docs/development/maintenance.md)
 
-Published version: <https://sangmeshcp.github.io/bigmuddy-network-telemetry-pipeline/>
+Published version: <https://sangameshpatil.com/bigmuddy-network-telemetry-pipeline/>
 
 ## In short
 
