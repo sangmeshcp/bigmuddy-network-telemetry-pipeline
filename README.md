@@ -1,7 +1,7 @@
 # *pipeline*: network telemetry collector
 
 [![ci](https://github.com/sangmeshcp/bigmuddy-network-telemetry-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/sangmeshcp/bigmuddy-network-telemetry-pipeline/actions/workflows/ci.yml)
-[![docs](https://github.com/sangmeshcp/bigmuddy-network-telemetry-pipeline/actions/workflows/docs.yml/badge.svg)](https://sangmeshcp.github.io/bigmuddy-network-telemetry-pipeline/)
+[![docs](https://github.com/sangmeshcp/bigmuddy-network-telemetry-pipeline/actions/workflows/docs.yml/badge.svg)](https://sangameshpatil.com/bigmuddy-network-telemetry-pipeline/)
 
 *pipeline* is an all-batteries-included collector for **model-driven
 streaming telemetry** from network devices. It subscribes to devices over
@@ -10,7 +10,7 @@ everything into one vendor-neutral metric model, optionally filters and
 enriches it, and delivers it to **Prometheus**, **OpenTelemetry (OTLP)**,
 **InfluxDB**, **Kafka** or files.
 
-📖 **Full documentation:** <https://sangmeshcp.github.io/bigmuddy-network-telemetry-pipeline/>
+📖 **Full documentation:** <https://sangameshpatil.com/bigmuddy-network-telemetry-pipeline/>
 (source in [`docs/`](docs/)).
 
 > *pipeline* was first released by Cisco in 2016 as an IOS XR-specific
