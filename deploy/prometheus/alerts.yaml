@@ -1,0 +1,117 @@
+# Prometheus alert rules for the telemetry pipeline and the devices it
+# collects from. Validated and unit-tested in CI (promtool check/test rules).
+#
+# Assumptions (adjust to your setup):
+#   - The pipeline's admin endpoint is scraped with a job name containing
+#     "pipeline" (e.g. "pipeline-self", or the Helm release's Service).
+#   - Device alerts use OpenConfig paths and the prometheus output with
+#     `string_fields: info` (needed for oper-status / session-state).
+groups:
+  - name: telemetry-pipeline
+    rules:
+      - alert: TelemetryPipelineDown
+        expr: up{job=~".*pipeline.*"} == 0
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: "Telemetry pipeline {{ $labels.instance }} is down"
+          description: "Prometheus cannot scrape the pipeline admin endpoint. No device telemetry is being collected by this instance."
+          runbook_url: "https://sangameshpatil.com/bigmuddy-network-telemetry-pipeline/operations/troubleshooting/"
+
+      - alert: TelemetryNoIngest
+        expr: sum by (instance, input) (rate(pipeline_input_metrics_total[10m])) == 0
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: "Input {{ $labels.input }} on {{ $labels.instance }} has received no telemetry for 15m"
+          description: "The input is configured but no device is sending data. Check device reachability, credentials and subscriptions."
+          runbook_url: "https://sangameshpatil.com/bigmuddy-network-telemetry-pipeline/operations/troubleshooting/"
+
+      - alert: GNMITargetDown
+        expr: gnmi_target_up == 0
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "gNMI subscription to {{ $labels.target }} is down"
+          description: "Input {{ $labels.input }} cannot hold a subscription to {{ $labels.target }}. The pipeline keeps redialling; check reachability, TLS and credentials."
+          runbook_url: "https://sangameshpatil.com/bigmuddy-network-telemetry-pipeline/operations/troubleshooting/#gnmi"
+
+      - alert: GNMITargetFlapping
+        expr: increase(gnmi_session_failures_total[15m]) > 3
+        labels: {severity: warning}
+        annotations:
+          summary: "gNMI session to {{ $labels.target }} failed {{ $value | humanize }} times in 15m"
+          description: "The device keeps closing the stream. Check its gNMI session limits and logs."
+          runbook_url: "https://sangameshpatil.com/bigmuddy-network-telemetry-pipeline/operations/troubleshooting/#gnmi"
+
+      - alert: TelemetryOutputDropping
+        expr: sum by (instance, output, reason) (rate(pipeline_output_dropped_total[5m])) > 0
+        for: 10m
+        labels: {severity: critical}
+        annotations:
+          summary: "Output {{ $labels.output }} is dropping telemetry ({{ $labels.reason }})"
+          description: "{{ $value | humanize }} metrics/s are being lost. queue_full means the destination is too slow; write_failed means it is rejecting data."
+          runbook_url: "https://sangameshpatil.com/bigmuddy-network-telemetry-pipeline/operations/troubleshooting/#outputs"
+
+      - alert: TelemetryOutputWriteErrors
+        expr: sum by (instance, output) (rate(pipeline_output_write_errors_total[5m])) > 0
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: "Output {{ $labels.output }} has had write errors for 15m"
+          description: "Writes are failing and being retried. Data is not lost yet, but the destination is unhealthy."
+          runbook_url: "https://sangameshpatil.com/bigmuddy-network-telemetry-pipeline/operations/troubleshooting/#outputs"
+
+      - alert: TelemetryRouterBacklog
+        expr: pipeline_router_queue_batches > 100
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "Telemetry router backlog on {{ $labels.instance }}"
+          description: "Processing can't keep up with ingest; inputs are being throttled. Scale out, reduce subscriptions or filter earlier."
+          runbook_url: "https://sangameshpatil.com/bigmuddy-network-telemetry-pipeline/operations/deployment/#scaling"
+
+      - alert: MDTCompactGPB
+        expr: increase(mdt_decode_errors_total{reason="compact_gpb"}[10m]) > 0
+        labels: {severity: warning}
+        annotations:
+          summary: "A device is sending compact GPB to {{ $labels.input }}"
+          description: "Compact GPB can't be decoded. Change the device's destination-group encoding to self-describing-gpb."
+          runbook_url: "https://sangameshpatil.com/bigmuddy-network-telemetry-pipeline/operations/troubleshooting/#cisco-mdt-dial-out"
+
+  - name: network-devices
+    rules:
+      - alert: InterfaceOperDown
+        expr: |
+          interfaces_interface_state_oper_status_info{value="DOWN"} == 1
+            and on (source, interface_name)
+          interfaces_interface_state_admin_status_info{value="UP"} == 1
+        for: 2m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.source }} {{ $labels.interface_name }} is down (admin up)"
+          description: "The interface is administratively enabled but operationally down."
+
+      - alert: InterfaceInputErrors
+        expr: rate(interfaces_interface_state_counters_in_errors[5m]) > 1
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.source }} {{ $labels.interface_name }} input errors: {{ $value | humanize }}/s"
+          description: "Sustained input errors usually mean a bad optic, cable or duplex/FEC mismatch."
+
+      - alert: XRInterfaceCRCErrors
+        expr: rate(Cisco_IOS_XR_infra_statsd_oper_infra_statistics_interfaces_interface_latest_generic_counters_crc_errors[5m]) > 0
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.source }} {{ $labels.interface_name }} CRC errors: {{ $value | humanize }}/s"
+          description: "CRC errors on an IOS XR interface (MDT generic-counters)."
+
+      - alert: BGPSessionNotEstablished
+        expr: network_instances_network_instance_protocols_protocol_bgp_neighbors_neighbor_state_session_state_info{value!="ESTABLISHED"} == 1
+        for: 5m
+        labels: {severity: critical}
+        annotations:
+          summary: "BGP {{ $labels.source }} → {{ $labels.neighbor_neighbor_address }} is {{ $labels.value }}"
+          description: "The BGP session in network instance {{ $labels.network_instance_name }} has not been ESTABLISHED for 5m."

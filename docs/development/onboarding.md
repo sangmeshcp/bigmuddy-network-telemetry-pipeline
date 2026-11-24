@@ -95,7 +95,8 @@ flowchart LR
   D --> E[CI] --> F[review] --> G[merge] --> H[docs auto-publish]
 ```
 
-1. **Branch**: `git switch -c feat/short-description`.
+1. **Branch**: `git switch -c feat/short-description`, and **sign off**
+   every commit with `git commit -s` ([DCO](https://github.com/sangmeshcp/bigmuddy-network-telemetry-pipeline/blob/master/CONTRIBUTING.md#developer-certificate-of-origin-dco)).
 2. **Write the test first** when fixing a bug: reproduce it in the nearest
    `_test.go` file.
 3. **Keep the docs in step**: a new config key belongs in
@@ -106,7 +107,13 @@ flowchart LR
    [Testing & CI](testing.md) for what each job checks and how to reproduce
    it locally.
 6. **Commit messages**: imperative subject under 72 characters ("Add statsd
-   output"), with a body explaining *why*.
+   output"), with a body explaining *why*. Add user-visible changes to
+   `CHANGELOG.md` under **Unreleased**.
+
+Everyone taking part follows the
+[Code of Conduct](https://github.com/sangmeshcp/bigmuddy-network-telemetry-pipeline/blob/master/CODE_OF_CONDUCT.md);
+report security issues privately as described in
+[SECURITY.md](https://github.com/sangmeshcp/bigmuddy-network-telemetry-pipeline/blob/master/SECURITY.md).
 
 ## 6. Conventions
 

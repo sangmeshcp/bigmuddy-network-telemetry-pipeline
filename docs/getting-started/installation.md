@@ -3,6 +3,43 @@
 The pipeline is a single static binary with no runtime dependencies. Pick
 whichever packaging suits your environment.
 
+## Download a release (recommended)
+
+Every [release](https://github.com/sangmeshcp/bigmuddy-network-telemetry-pipeline/releases)
+publishes archives for Linux and macOS on amd64 and arm64. Each archive
+contains `pipeline`, the `mdt-replay` test tool, the license and example
+configs.
+
+```bash
+VERSION=0.1.0                                    # pick from the releases page
+OS=linux ARCH=amd64                              # or darwin / arm64
+BASE=https://github.com/sangmeshcp/bigmuddy-network-telemetry-pipeline/releases/download/v$VERSION
+curl -fLO "$BASE/telemetry-pipeline_${VERSION}_${OS}_${ARCH}.tar.gz"
+curl -fLO "$BASE/telemetry-pipeline_${VERSION}_checksums.txt"
+sha256sum --ignore-missing -c telemetry-pipeline_${VERSION}_checksums.txt
+tar xzf telemetry-pipeline_${VERSION}_${OS}_${ARCH}.tar.gz
+sudo install pipeline /usr/local/bin/
+pipeline -version
+```
+
+??? tip "Verify the signature (supply-chain security)"
+    Releases are signed keylessly with [Sigstore cosign](https://docs.sigstore.dev/)
+    from the release workflow. Each release also ships an SPDX SBOM per archive.
+
+    ```bash
+    curl -fLO "$BASE/telemetry-pipeline_${VERSION}_checksums.txt.pem"
+    curl -fLO "$BASE/telemetry-pipeline_${VERSION}_checksums.txt.sig"
+    cosign verify-blob \
+      --certificate telemetry-pipeline_${VERSION}_checksums.txt.pem \
+      --signature   telemetry-pipeline_${VERSION}_checksums.txt.sig \
+      --certificate-identity-regexp 'https://github.com/sangmeshcp/bigmuddy-network-telemetry-pipeline/' \
+      --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+      telemetry-pipeline_${VERSION}_checksums.txt
+    ```
+
+    A valid signature over the checksum file, plus a passing `sha256sum -c`,
+    proves the archive was built by this repository's release workflow.
+
 ## From source
 
 Requires Go 1.26.11 or newer.
@@ -52,17 +89,35 @@ journalctl -u pipeline -f
 
 ## Container image
 
-The image is built from the repository's `Dockerfile`: a static binary on
-`gcr.io/distroless/static`, running as a non-root user, about 20 MB.
+Published images are multi-arch (amd64, arm64): a static binary on
+`gcr.io/distroless/static`, running as a non-root user, about 20 MB. Each one
+is signed with cosign and carries SBOM and build-provenance attestations.
 
 ```bash
-make image                                   # tags telemetry-pipeline:<git version>
 docker run --rm \
   -v "$PWD/pipeline.yaml:/etc/pipeline/pipeline.yaml:ro" \
   -e GNMI_PASSWORD \
   -p 9180:9180 -p 9273:9273 -p 57500:57500 \
-  telemetry-pipeline:<version>
+  ghcr.io/sangmeshcp/telemetry-pipeline:v0.1.0
 ```
+
+| Tag | Meaning |
+|---|---|
+| `vX.Y.Z` | An exact release. Pin this in production. |
+| `vX.Y` | Latest patch of a minor release |
+| `latest` | Latest stable release (pre-releases excluded) |
+
+Verify an image before deploying:
+
+```bash
+cosign verify ghcr.io/sangmeshcp/telemetry-pipeline:v0.1.0 \
+  --certificate-identity-regexp 'https://github.com/sangmeshcp/bigmuddy-network-telemetry-pipeline/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+To build your own image instead: `make image`, or
+`docker buildx build --platform linux/amd64,linux/arm64 .` for both
+architectures.
 
 Without a mounted config the image runs `examples/minimal.yaml`, which accepts
 MDT gRPC dial-out on `:57500` and serves Prometheus metrics on `:9273`.
@@ -84,8 +139,8 @@ docker compose up --build
 |---|---|---|
 | Pipeline admin | <http://localhost:9180/metrics> | self-monitoring |
 | Pipeline exporter | <http://localhost:9273/metrics> | device telemetry |
-| Prometheus | <http://localhost:9090> | scrapes both, OTLP receiver enabled |
-| Grafana | <http://localhost:3000> | Prometheus datasource pre-provisioned |
+| Prometheus | <http://localhost:9090> | scrapes both, OTLP receiver enabled, recommended alert rules loaded |
+| Grafana | <http://localhost:3000> | Prometheus datasource and the four dashboards pre-provisioned |
 
 Point IOS XR dial-out at `<your-host>:57500` (gRPC) or `:5432` (TCP), or add
 gNMI targets to `deploy/compose/pipeline.yaml`. To try it without a router:
@@ -94,21 +149,35 @@ gNMI targets to `deploy/compose/pipeline.yaml`. To try it without a router:
 go run ./cmd/mdt-replay -addr localhost:57500 internal/input/ciscomdt/testdata/*.kvgpb
 ```
 
-## Kubernetes
+## Kubernetes (Helm)
 
-`deploy/kubernetes/pipeline.yaml` contains a ConfigMap, a Deployment with
-liveness and readiness probes and a hardened security context, a ClusterIP
-Service for scraping, and a LoadBalancer Service for device dial-out.
+The chart is published to GHCR with every release:
 
 ```bash
-kubectl create secret generic telemetry-pipeline --from-literal=gnmi-password='...'
-kubectl apply -f deploy/kubernetes/pipeline.yaml
-kubectl port-forward deploy/telemetry-pipeline 9180 &
-curl localhost:9180/readyz
+kubectl create namespace telemetry
+kubectl -n telemetry create secret generic telemetry-pipeline --from-literal=gnmi-password='...'
+helm install telemetry oci://ghcr.io/sangmeshcp/charts/telemetry-pipeline \
+  --version 0.1.0 -n telemetry -f my-values.yaml
+helm test telemetry -n telemetry
 ```
 
-See [Deployment](../operations/deployment.md) for scaling, sizing and
-security guidance.
+Put the pipeline config under `config:` in your values file. The
+[chart README](https://github.com/sangmeshcp/bigmuddy-network-telemetry-pipeline/tree/master/deploy/helm/telemetry-pipeline)
+has a gNMI example and every value. What the chart gives you:
+
+- Every config is validated by `pipeline -check` in an init container, so a
+  bad config fails fast and, with `helm upgrade --atomic`, rolls back.
+- Config changes roll the pods; shutdown drains the queues.
+- Liveness and readiness probes, a hardened security context, an optional
+  ServiceMonitor and PodDisruptionBudget, and a `helm test`.
+- A LoadBalancer Service for device dial-out that keeps source IPs.
+
+CI installs the chart on a kind cluster on every change and checks the
+install, `helm test`, data flowing through the Services, config-change
+rollout and rejection of a bad config.
+
+A plain manifest is also available at `deploy/kubernetes/pipeline.yaml` if
+you don't use Helm.
 
 ## Verify any installation
 

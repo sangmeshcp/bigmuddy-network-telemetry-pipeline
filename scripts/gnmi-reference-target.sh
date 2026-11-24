@@ -40,28 +40,35 @@ extendedKeyUsage=serverAuth"
   done
 )
 
-# Two interfaces with counters that change every 500ms, plus oper-status.
-cat > "$DIR/config.textproto" <<'CFG'
+# Interface counters, errors, discards and status for two interfaces, plus a
+# BGP neighbor (session state and prefix counts). Values change every 500ms.
+gen_values() {
+  local ts='timestamp: { timestamp: 1 delta_min: 500000000 delta_max: 500000000 }'
+  for ifname in eth0 eth1; do
+    local p='"interfaces", "interface[name='"$ifname"']", "state"'
+    for c in in-octets out-octets; do
+      echo "values: { path: [$p, \"counters\", \"$c\"] $ts int_value: { value: 1000 range: { minimum: 0 maximum: 1000000000000 delta_min: 1 delta_max: 50000 } } }"
+    done
+    for c in in-errors out-errors in-discards out-discards; do
+      echo "values: { path: [$p, \"counters\", \"$c\"] $ts int_value: { value: 0 range: { minimum: 0 maximum: 1000000 delta_min: 0 delta_max: 2 } } }"
+    done
+    echo "values: { path: [$p, \"oper-status\"] $ts string_value: { value: \"UP\" list: { options: [\"UP\", \"DOWN\"] random: true } } }"
+    echo "values: { path: [$p, \"admin-status\"] $ts string_value: { value: \"UP\" } }"
+  done
+  local n='"network-instances", "network-instance[name=default]", "protocols", "protocol[identifier=BGP][name=BGP]", "bgp", "neighbors", "neighbor[neighbor-address=192.0.2.2]"'
+  echo "values: { path: [$n, \"state\", \"session-state\"] $ts string_value: { value: \"ESTABLISHED\" } }"
+  for c in received installed; do
+    echo "values: { path: [$n, \"afi-safis\", \"afi-safi[afi-safi-name=IPV4_UNICAST]\", \"state\", \"prefixes\", \"$c\"] $ts int_value: { value: 900 range: { minimum: 0 maximum: 2000 delta_min: 0 delta_max: 10 } } }"
+  done
+}
+
+cat > "$DIR/config.textproto" <<CFG
 target: "dut"
 client_type: GRPC_GNMI
 disable_eof: true
 enable_delay: true
 seed: 1
-values: {
-  path: ["interfaces", "interface[name=eth0]", "state", "counters", "in-octets"]
-  timestamp: { timestamp: 1 delta_min: 500000000 delta_max: 500000000 }
-  int_value: { value: 1000 range: { minimum: 0 maximum: 1000000000000 delta_min: 1 delta_max: 50000 } }
-}
-values: {
-  path: ["interfaces", "interface[name=eth1]", "state", "counters", "in-octets"]
-  timestamp: { timestamp: 1 delta_min: 500000000 delta_max: 500000000 }
-  int_value: { value: 5000 range: { minimum: 0 maximum: 1000000000000 delta_min: 1 delta_max: 50000 } }
-}
-values: {
-  path: ["interfaces", "interface[name=eth0]", "state", "oper-status"]
-  timestamp: { timestamp: 1 delta_min: 500000000 delta_max: 500000000 }
-  string_value: { value: "UP" list: { options: ["UP", "DOWN"] random: true } }
-}
+$(gen_values)
 CFG
 
 "$DIR/fake_server" -text -config "$DIR/config.textproto" -port "$PORT" \

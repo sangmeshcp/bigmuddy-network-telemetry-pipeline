@@ -90,7 +90,26 @@ func New(cfg *config.Config, log *slog.Logger, reg prometheus.Registerer) (*Engi
 		e.outputs = append(e.outputs, &outputWorker{name: p.Name, out: o, d: p.Delivery,
 			q: make(chan *telemetry.Metric, p.Delivery.QueueSize), m: e.m, log: env("output", p).Logger})
 	}
+	e.initSeries()
 	return e, nil
+}
+
+// initSeries creates every known label combination at zero. Without this a
+// counter series only appears after its first increment, so `rate()`-based
+// alerts (e.g. "input received nothing") could never fire for an input that
+// has never received data, and dashboards would show "No data" instead of 0.
+func (e *Engine) initSeries() {
+	for _, in := range e.inputs {
+		e.m.received.WithLabelValues(in.name)
+	}
+	for _, w := range e.outputs {
+		e.m.enqueued.WithLabelValues(w.name)
+		e.m.written.WithLabelValues(w.name)
+		e.m.writeErrors.WithLabelValues(w.name)
+		for _, reason := range []string{"queue_full", "write_failed"} {
+			e.m.dropped.WithLabelValues(w.name, reason)
+		}
+	}
 }
 
 // Ready reports whether all stages have started.

@@ -1,0 +1,39 @@
+name: Device compatibility report
+description: Tell us how the pipeline works with a specific platform (working or not)
+labels: [device-compatibility]
+body:
+  - type: markdown
+    attributes:
+      value: Reports like this build the compatibility list in the docs, so they're valuable even when everything works.
+  - type: input
+    id: platform
+    attributes:
+      label: Vendor, platform and software version
+      placeholder: Juniper MX204, Junos 24.2R1
+    validations: {required: true}
+  - type: dropdown
+    id: transport
+    attributes:
+      label: Transport
+      options: [gNMI dial-in, Cisco MDT gRPC dial-out, Cisco MDT TCP dial-out, Cisco MDT UDP dial-out]
+    validations: {required: true}
+  - type: input
+    id: encoding
+    attributes:
+      label: Encoding
+      placeholder: proto / json_ietf / self-describing-gpb
+  - type: textarea
+    id: paths
+    attributes:
+      label: Paths / sensor paths tested
+      render: text
+  - type: dropdown
+    id: result
+    attributes:
+      label: Result
+      options: [Works, Works with caveats, Doesn't work]
+    validations: {required: true}
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes, caveats, device config snippets

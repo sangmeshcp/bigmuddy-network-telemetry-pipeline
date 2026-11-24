@@ -1,0 +1,59 @@
+name: dco
+
+# Developer Certificate of Origin: every commit in a pull request must carry
+# "Signed-off-by: Name <email>" matching its author (`git commit -s`).
+# Like the DCO GitHub App's `require.members: false`, PRs opened by repository
+# owners, members and collaborators (and bots such as Dependabot) are exempt.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  signoff:
+    runs-on: ubuntu-latest
+    steps:
+      - name: check exemption
+        id: exempt
+        env:
+          ASSOC: ${{ github.event.pull_request.author_association }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          TYPE: ${{ github.event.pull_request.user.type }}
+        run: |
+          case "$ASSOC" in OWNER|MEMBER|COLLABORATOR) echo "exempt=true" >> "$GITHUB_OUTPUT"; echo "PR by $AUTHOR ($ASSOC): exempt"; exit 0;; esac
+          if [ "$TYPE" = "Bot" ]; then echo "exempt=true" >> "$GITHUB_OUTPUT"; echo "PR by bot $AUTHOR: exempt"; exit 0; fi
+          echo "exempt=false" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v5
+        if: steps.exempt.outputs.exempt != 'true'
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: every commit is signed off by its author
+        if: steps.exempt.outputs.exempt != 'true'
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python3 - <<'PY'
+          import os, re, subprocess, sys
+          base, head = os.environ["BASE"], os.environ["HEAD"]
+          out = subprocess.run(["git", "log", "--no-merges", "--format=%H%x1f%an%x1f%ae%x1f%B%x1e", f"{base}..{head}"],
+                               capture_output=True, text=True, check=True).stdout
+          bad = []
+          for rec in filter(None, (r.strip() for r in out.split("\x1e"))):
+              sha, name, email, body = rec.split("\x1f", 3)
+              signoffs = re.findall(r"^Signed-off-by:\s*(.+?)\s*<([^>]+)>\s*$", body, re.M | re.I)
+              if not any(e.lower() == email.lower() for _, e in signoffs):
+                  bad.append(f"{sha[:10]} by {name} <{email}>: {body.splitlines()[0][:60]}")
+          if bad:
+              print("::error::These commits are missing a matching 'Signed-off-by' line:")
+              for b in bad:
+                  print("  " + b)
+              print("\nFix: git rebase --signoff origin/master && git push --force-with-lease")
+              print("See CONTRIBUTING.md#developer-certificate-of-origin-dco")
+              sys.exit(1)
+          print("all commits signed off")
+          PY

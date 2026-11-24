@@ -5,3 +5,4 @@
 .venv/
 /site/
 /_site/
+/dist/

@@ -1,0 +1,31 @@
+name: Feature request
+description: Propose a new capability or an improvement
+labels: [enhancement, triage]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and what gets in the way? Describe the problem before the solution.
+    validations: {required: true}
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How might it work? Include example config if relevant.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives and workarounds
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: How would we know it's done?
+      placeholder: |
+        - [ ] ...
+  - type: dropdown
+    id: contribute
+    attributes:
+      label: Would you like to help build it?
+      options: ["Yes, I'd like to send a PR", "I can help test", "Not right now"]

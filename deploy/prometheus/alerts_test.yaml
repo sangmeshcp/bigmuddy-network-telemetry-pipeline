@@ -1,0 +1,135 @@
+# promtool test rules deploy/prometheus/alerts_test.yaml
+rule_files: [alerts.yaml]
+evaluation_interval: 1m
+
+tests:
+  - name: pipeline down fires after 2m
+    interval: 1m
+    input_series:
+      - series: 'up{job="pipeline-self",instance="p1:9180"}'
+        values: '1 0 0 0 0'
+    alert_rule_test:
+      - {eval_time: 2m, alertname: TelemetryPipelineDown, exp_alerts: []}
+      - eval_time: 4m
+        alertname: TelemetryPipelineDown
+        exp_alerts:
+          - exp_labels: {severity: critical, job: pipeline-self, instance: "p1:9180"}
+            exp_annotations:
+              summary: "Telemetry pipeline p1:9180 is down"
+              description: "Prometheus cannot scrape the pipeline admin endpoint. No device telemetry is being collected by this instance."
+              runbook_url: "https://sangameshpatil.com/bigmuddy-network-telemetry-pipeline/operations/troubleshooting/"
+
+  - name: gNMI target down and flapping
+    interval: 1m
+    input_series:
+      - series: 'gnmi_target_up{input="core",target="r1"}'
+        values: '1 1 0 0 0 0 0 0 0'
+      - series: 'gnmi_session_failures_total{input="core",target="r1"}'
+        values: '0 1 2 3 4 5 6 7 8'
+    alert_rule_test:
+      - {eval_time: 5m, alertname: GNMITargetDown, exp_alerts: []}
+      - eval_time: 8m
+        alertname: GNMITargetDown
+        exp_alerts:
+          - exp_labels: {severity: warning, input: core, target: r1}
+            exp_annotations:
+              summary: "gNMI subscription to r1 is down"
+              description: "Input core cannot hold a subscription to r1. The pipeline keeps redialling; check reachability, TLS and credentials."
+              runbook_url: "https://sangameshpatil.com/bigmuddy-network-telemetry-pipeline/operations/troubleshooting/#gnmi"
+      - eval_time: 8m
+        alertname: GNMITargetFlapping
+        exp_alerts:
+          - exp_labels: {severity: warning, input: core, target: r1}
+            exp_annotations:
+              summary: "gNMI session to r1 failed 8 times in 15m"
+              description: "The device keeps closing the stream. Check its gNMI session limits and logs."
+              runbook_url: "https://sangameshpatil.com/bigmuddy-network-telemetry-pipeline/operations/troubleshooting/#gnmi"
+
+  - name: output dropping only after 10m sustained
+    interval: 1m
+    input_series:
+      - series: 'pipeline_output_dropped_total{instance="p1",output="kafka",reason="queue_full"}'
+        values: '0+60x20'
+      - series: 'pipeline_output_dropped_total{instance="p1",output="prom",reason="queue_full"}'
+        values: '0x20'
+    alert_rule_test:
+      - {eval_time: 8m, alertname: TelemetryOutputDropping, exp_alerts: []}
+      - eval_time: 16m
+        alertname: TelemetryOutputDropping
+        exp_alerts:
+          - exp_labels: {severity: critical, instance: p1, output: kafka, reason: queue_full}
+            exp_annotations:
+              summary: "Output kafka is dropping telemetry (queue_full)"
+              description: "1 metrics/s are being lost. queue_full means the destination is too slow; write_failed means it is rejecting data."
+              runbook_url: "https://sangameshpatil.com/bigmuddy-network-telemetry-pipeline/operations/troubleshooting/#outputs"
+
+  - name: interface down only when admin up
+    interval: 1m
+    input_series:
+      - series: 'interfaces_interface_state_oper_status_info{source="r1",interface_name="Eth1",value="DOWN"}'
+        values: '1x5'
+      - series: 'interfaces_interface_state_admin_status_info{source="r1",interface_name="Eth1",value="UP"}'
+        values: '1x5'
+      - series: 'interfaces_interface_state_oper_status_info{source="r1",interface_name="Eth2",value="DOWN"}'
+        values: '1x5'
+      - series: 'interfaces_interface_state_admin_status_info{source="r1",interface_name="Eth2",value="DOWN"}'
+        values: '1x5'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: InterfaceOperDown
+        exp_alerts:
+          - exp_labels: {severity: warning, source: r1, interface_name: Eth1, value: DOWN}
+            exp_annotations:
+              summary: "r1 Eth1 is down (admin up)"
+              description: "The interface is administratively enabled but operationally down."
+
+  - name: BGP not established
+    interval: 1m
+    input_series:
+      - series: 'network_instances_network_instance_protocols_protocol_bgp_neighbors_neighbor_state_session_state_info{source="r1",network_instance_name="default",neighbor_neighbor_address="192.0.2.2",value="ACTIVE"}'
+        values: '1x8'
+      - series: 'network_instances_network_instance_protocols_protocol_bgp_neighbors_neighbor_state_session_state_info{source="r1",network_instance_name="default",neighbor_neighbor_address="192.0.2.3",value="ESTABLISHED"}'
+        values: '1x8'
+    alert_rule_test:
+      - eval_time: 7m
+        alertname: BGPSessionNotEstablished
+        exp_alerts:
+          - exp_labels: {severity: critical, source: r1, network_instance_name: default, neighbor_neighbor_address: 192.0.2.2, value: ACTIVE}
+            exp_annotations:
+              summary: "BGP r1 → 192.0.2.2 is ACTIVE"
+              description: "The BGP session in network instance default has not been ESTABLISHED for 5m."
+
+  - name: compact GPB
+    interval: 1m
+    input_series:
+      - series: 'mdt_decode_errors_total{input="xr",reason="compact_gpb"}'
+        values: '0 0 3 6'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: MDTCompactGPB
+        exp_alerts:
+          - exp_labels: {severity: warning, input: xr, reason: compact_gpb}
+            exp_annotations:
+              summary: "A device is sending compact GPB to xr"
+              description: "Compact GPB can't be decoded. Change the device's destination-group encoding to self-describing-gpb."
+              runbook_url: "https://sangameshpatil.com/bigmuddy-network-telemetry-pipeline/operations/troubleshooting/#cisco-mdt-dial-out"
+
+  # The pipeline initialises its counters at 0, so an input that has never
+  # received anything still has a series and this alert can fire.
+  - name: no ingest on a silent input
+    interval: 1m
+    input_series:
+      - series: 'pipeline_input_metrics_total{instance="p1",input="dialout"}'
+        values: '0x30'
+      - series: 'pipeline_input_metrics_total{instance="p1",input="busy"}'
+        values: '0+100x30'
+    alert_rule_test:
+      - {eval_time: 10m, alertname: TelemetryNoIngest, exp_alerts: []}
+      - eval_time: 20m
+        alertname: TelemetryNoIngest
+        exp_alerts:
+          - exp_labels: {severity: warning, instance: p1, input: dialout}
+            exp_annotations:
+              summary: "Input dialout on p1 has received no telemetry for 15m"
+              description: "The input is configured but no device is sending data. Check device reachability, credentials and subscriptions."
+              runbook_url: "https://sangameshpatil.com/bigmuddy-network-telemetry-pipeline/operations/troubleshooting/"

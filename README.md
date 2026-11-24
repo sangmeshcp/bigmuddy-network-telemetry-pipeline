@@ -296,17 +296,20 @@ The admin endpoint (`admin: {listen: ":9180"}`) serves `/healthz`,
 | `pipeline_output_written_total` / `pipeline_output_dropped_total{reason}` | delivery health per output |
 | `pipeline_output_write_duration_seconds` | destination latency |
 
-Recommended alert rules and queries:
-[Monitoring the pipeline](docs/operations/monitoring.md).
+**Ready-made Grafana dashboards** (pipeline health, interfaces for OpenConfig
+and IOS XR, BGP) and **tested Prometheus alert rules** ship in
+[`deploy/grafana`](deploy/grafana) and [`deploy/prometheus`](deploy/prometheus).
+They are pre-provisioned in the Compose lab and available through the Helm
+chart. See [Monitoring the pipeline](docs/operations/monitoring.md).
 
 ## Deployment
 
 | | |
 |---|---|
-| **Binary** | `make build`: one static binary, no runtime dependencies; systemd unit in the [install guide](docs/getting-started/installation.md) |
-| **Container** | `make image`: distroless, non-root, ~20 MB |
+| **Binary** | [Download a release](https://github.com/sangmeshcp/bigmuddy-network-telemetry-pipeline/releases) (linux/darwin, amd64/arm64, signed, with SBOMs) or `make build`; systemd unit in the [install guide](docs/getting-started/installation.md) |
+| **Container** | `ghcr.io/sangmeshcp/telemetry-pipeline`: multi-arch, distroless, non-root, ~20 MB, cosign-signed |
 | **Compose lab** | [`deploy/compose`](deploy/compose): pipeline + Prometheus 3 + Grafana |
-| **Kubernetes** | [`deploy/kubernetes`](deploy/kubernetes): probes, secrets, hardened security context, dial-out LoadBalancer |
+| **Kubernetes** | Helm chart [`deploy/helm/telemetry-pipeline`](deploy/helm/telemetry-pipeline) (`oci://ghcr.io/sangmeshcp/charts/telemetry-pipeline`): config validated at deploy, rolling config updates, probes, hardened, ServiceMonitor |
 
 Scaling, sizing and the security checklist: [Deployment](docs/operations/deployment.md).
 Common problems: [Troubleshooting](docs/operations/troubleshooting.md).
@@ -343,7 +346,11 @@ smoke test. CI runs all of them on every pull request; see
 Adding an input, processor or output takes one Go type and one `Register`
 call: [Writing a plugin](docs/development/writing-plugins.md).
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for how to submit changes.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for how to submit changes (commits are
+signed off under the [DCO](CONTRIBUTING.md#developer-certificate-of-origin-dco)),
+the [Code of Conduct](CODE_OF_CONDUCT.md), [Governance](GOVERNANCE.md) and the
+[Changelog](CHANGELOG.md). Report vulnerabilities privately per
+[SECURITY.md](SECURITY.md).
 
 ## License
 

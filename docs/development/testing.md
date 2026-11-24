@@ -99,6 +99,9 @@ make smoke     # builds the image, runs it, smoke-tests it, removes it
 | `integration-gnmi` | OpenConfig reference target over mTLS | `scripts/gnmi-reference-target.sh` |
 | `integration-device` | Nokia SR Linux (weekly + manual dispatch only) | `integration/srlinux.clab.yml` with containerlab |
 | `docker` | image builds, runs as non-root, smoke test, clean exit on SIGTERM | `make smoke` |
+| `release-dry-run` | GoReleaser snapshot (archives, checksums, SBOMs) and an amd64 + arm64 image build | `goreleaser release --snapshot --clean --skip=sign` |
+| `helm` | chart lint and schema validation; on a kind cluster: install, `helm test`, data through the Services, config-change rollout, bad config rejected and rolled back | `make helm-lint` (+ kind) |
+| `dashboards` | alert rules pass `promtool test rules`; dashboards match the generator; every panel query returns data from a live pipeline; Grafana provisions all dashboards | `make alerts-test dashboard-check` |
 | `config-examples` | every shipped config passes `-check` | `make check-config` |
 | `govulncheck` | known vulnerabilities in reachable code | `go run golang.org/x/vuln/cmd/govulncheck@latest ./...` |
 

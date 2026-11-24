@@ -44,22 +44,57 @@ go get github.com/twmb/franz-go@latest             # or just one module
 
 ## Releases
 
-1. Make sure `master` is green.
-2. Tag it: `git tag -a v1.2.0 -m "v1.2.0" && git push origin v1.2.0`.
-3. Build artefacts. The version is taken from `git describe`:
+Releases are fully automated by `.github/workflows/release.yml` and
+`.goreleaser.yaml`. Pushing a `v*` tag:
 
-    ```bash
-    make build                        # bin/pipeline reports v1.2.0
-    make image IMAGE=ghcr.io/<owner>/telemetry-pipeline
-    docker push ghcr.io/<owner>/telemetry-pipeline:v1.2.0
-    ```
+1. **verify**: vet, race tests and `govulncheck` on the tagged commit.
+2. **binaries**: GoReleaser builds linux/darwin × amd64/arm64 archives
+   (`pipeline` + `mdt-replay`), checksums, an SPDX SBOM per archive, a
+   keyless cosign signature over the checksums, and a GitHub Release with a
+   generated changelog and verification instructions.
+3. **image**: a multi-arch image is pushed to
+   `ghcr.io/<owner>/telemetry-pipeline` with tags `vX.Y.Z`, `vX.Y` and
+   `latest` (stable releases only), SBOM and provenance attestations, then
+   signed with cosign and the signature verified.
 
-4. Write release notes covering config changes and anything operators must
-   do.
+### Cutting a release
 
-Versioning follows SemVer as far as the *configuration file and exported
-metric names* go: renaming or removing a config key, or changing how metrics
-are named, is a breaking change.
+```bash
+git switch master && git pull
+# Update CHANGELOG.md: move "Unreleased" items under the new version
+git tag -a v0.2.0 -m "v0.2.0"
+git push origin v0.2.0
+```
+
+Tags with a suffix (`v0.2.0-rc.1`) are published as **pre-releases** and don't
+move `latest`.
+
+### Rehearsal
+
+Every pull request runs the `release-dry-run` CI job: a GoReleaser snapshot
+(with SBOMs) and a multi-arch image build without pushing. A broken release
+config therefore fails the PR, not the tag. To rehearse locally:
+
+```bash
+go install github.com/goreleaser/goreleaser/v2@latest
+IMAGE_OWNER=me GITHUB_REPOSITORY=me/repo goreleaser release --snapshot --clean --skip=sign,sbom
+ls dist/
+```
+
+### Versioning
+
+SemVer, applied to the **configuration file and exported metric names**.
+Renaming or removing a config key, or changing how metrics are named, is a
+breaking change and needs a major version bump (or a minor bump before 1.0,
+called out in the changelog).
+
+### One-time setup
+
+- The GHCR package is created on the first release. Make it public under
+  **Packages → telemetry-pipeline → Package settings → Change visibility**
+  so users can pull without logging in.
+- No secrets are needed: signing uses GitHub's OIDC token (keyless), and
+  publishing uses the workflow's `GITHUB_TOKEN`.
 
 ## Documentation
 

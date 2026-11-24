@@ -42,6 +42,8 @@ spec:
       terminationGracePeriodSeconds: 45   # > pipeline drain timeout (30s)
       securityContext:
         runAsNonRoot: true
+        runAsUser: 65532          # numeric, so runAsNonRoot can be verified
+        runAsGroup: 65532
         seccompProfile: {type: RuntimeDefault}
       containers:
         - name: pipeline

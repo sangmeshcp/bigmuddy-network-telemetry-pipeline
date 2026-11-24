@@ -1,0 +1,54 @@
+name: Bug report
+description: Something isn't working as documented
+labels: [bug, triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please search [existing issues](../issues) first.
+        **Security vulnerabilities**: don't file them here; see [SECURITY.md](../blob/master/SECURITY.md).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you saw, and what you expected instead.
+    validations: {required: true}
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: Minimal config and steps. If you can, reproduce it with `mdt-replay` or `scripts/gnmi-reference-target.sh`.
+      placeholder: |
+        1. Run with this config...
+        2. Send...
+        3. See...
+    validations: {required: true}
+  - type: input
+    id: version
+    attributes:
+      label: Pipeline version
+      description: Output of `pipeline -version`
+      placeholder: v0.1.0
+    validations: {required: true}
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: How do you run it?
+      options: [Release binary, Container (docker/podman), Helm chart, Built from source, Other]
+    validations: {required: true}
+  - type: input
+    id: device
+    attributes:
+      label: Device platform and software version (if device-related)
+      placeholder: Cisco IOS XR 24.2.1 / Arista EOS 4.33 / Nokia SR Linux 24.10 / ...
+  - type: textarea
+    id: config
+    attributes:
+      label: Configuration (secrets removed)
+      render: yaml
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: "From a run with `log: {level: debug}`. Remove anything sensitive."
+      render: text

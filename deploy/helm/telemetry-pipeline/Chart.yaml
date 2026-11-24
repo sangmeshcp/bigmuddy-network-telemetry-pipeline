@@ -1,0 +1,11 @@
+apiVersion: v2
+name: telemetry-pipeline
+description: Network streaming telemetry collector (gNMI, Cisco MDT) exporting to Prometheus, OpenTelemetry, InfluxDB and Kafka
+type: application
+version: 0.1.0
+appVersion: "v0.1.0"
+home: https://sangameshpatil.com/bigmuddy-network-telemetry-pipeline/
+sources:
+  - https://github.com/sangmeshcp/bigmuddy-network-telemetry-pipeline
+keywords: [telemetry, gnmi, openconfig, network, prometheus, opentelemetry]
+license: Apache-2.0
