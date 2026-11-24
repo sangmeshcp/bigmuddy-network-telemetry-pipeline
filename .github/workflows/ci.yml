@@ -294,7 +294,9 @@ jobs:
             --set dialoutService.type=ClusterIP
           kubectl get pods -o wide
       - name: helm test
-        run: helm test "$REL" --logs
+        # No --logs: a passing test pod is deleted by its hook-delete-policy;
+        # failed test pods are kept and shown by the diagnostics step.
+        run: helm test "$REL"
       - name: end-to-end through the Services (replay IOS XR telemetry)
         run: |
           kubectl port-forward "svc/$REL-telemetry-pipeline" 9180 9273 >/dev/null 2>&1 &
@@ -329,6 +331,7 @@ jobs:
           kubectl get all -o wide
           kubectl describe pods -l app.kubernetes.io/instance=$REL | tail -80
           kubectl logs -l app.kubernetes.io/instance=$REL --all-containers --tail=80 || true
+          kubectl logs "$REL-telemetry-pipeline-test-ready" || true
 
   # ---------------------------------------------------------------------------
   dashboards:
