@@ -111,6 +111,30 @@ Fields keep their kind through the `rename` processor.
     `<name>_total`, the exporter serves the classic text format so series
     names stay stable whether or not you enable typing.
 
+## `downsample`
+
+Keeps at most **one sample per series and field per interval**, dropping the
+rest. Use it to cut storage and warehouse cost when devices send more often
+than you need to keep, for example 10 s samples kept at 1 minute resolution
+in a data lake.
+
+```yaml
+- type: downsample
+  interval: 1m
+  # names: ["interfaces"]   # only these metrics; others pass through untouched
+```
+
+- Windows are aligned to the device timestamp, so every replica makes the
+  same choice.
+- Each field is handled separately, so leaves a device splits across
+  several notifications are each kept once per window.
+- Counters stay correct for `rate()` because they're cumulative. Gauges keep
+  the first sample of each window.
+
+To keep full resolution in one place and downsample for another (e.g.
+Prometheus at 10 s, the lake at 1 min), run two pipelines, or downsample in
+the warehouse.
+
 ## Ordering example
 
 ```yaml
