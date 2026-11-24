@@ -1,0 +1,12 @@
+# Every optional feature switched on; rendered and schema-validated in CI.
+replicaCount: 2
+image: {digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"}
+secrets: {existingSecret: pipeline-secrets}
+env: [{name: GNMI_PASSWORD, valueFrom: {secretKeyRef: {name: gnmi, key: password}}}]
+serviceMonitor: {enabled: true, labels: {release: kps}}
+podDisruptionBudget: {enabled: true}
+inputPorts:
+  - {name: mdt-grpc, port: 57500}
+  - {name: mdt-udp, port: 5433, protocol: UDP}
+dialoutService: {loadBalancerSourceRanges: [10.0.0.0/8]}
+nodeSelector: {kubernetes.io/os: linux}

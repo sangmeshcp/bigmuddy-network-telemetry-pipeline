@@ -2,7 +2,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 IMAGE   ?= telemetry-pipeline
 
-.PHONY: all build test race cover lint generate image check-config integration smoke clean
+.PHONY: all build test race cover lint generate image check-config integration smoke helm-lint clean
 
 all: lint test build
 
@@ -35,6 +35,13 @@ smoke: image
 	docker rm -f pipeline-smoke 2>/dev/null || true
 	docker run -d --name pipeline-smoke -p 9180:9180 -p 9273:9273 -p 57500:57500 $(IMAGE):$(VERSION)
 	scripts/smoke.sh; rc=$$?; docker rm -f pipeline-smoke >/dev/null; exit $$rc
+
+# Lint the Helm chart and validate rendered manifests (needs helm, kubeconform).
+helm-lint:
+	helm lint deploy/helm/telemetry-pipeline --strict
+	helm template t deploy/helm/telemetry-pipeline | kubeconform -strict -summary
+	helm template t deploy/helm/telemetry-pipeline -f deploy/helm/telemetry-pipeline/ci/all-features-values.yaml \
+		| kubeconform -strict -summary -skip ServiceMonitor,PrometheusRule
 
 # Regenerate Go code from proto/ (requires buf, protoc-gen-go, protoc-gen-go-grpc).
 generate:

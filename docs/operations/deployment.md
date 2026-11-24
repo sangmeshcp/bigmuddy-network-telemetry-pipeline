@@ -68,7 +68,12 @@ Profile with `admin.pprof: true` and
 
 ## Kubernetes
 
-`deploy/kubernetes/pipeline.yaml` is a production-shaped starting point:
+Use the **Helm chart** (`deploy/helm/telemetry-pipeline`, published as
+`oci://ghcr.io/sangmeshcp/charts/telemetry-pipeline`); see
+[Installation](../getting-started/installation.md#kubernetes-helm). The chart
+does everything below, plus config validation in an init container and
+automatic rollouts on config change. The raw manifest
+`deploy/kubernetes/pipeline.yaml` shows the same shape without Helm:
 
 - Config in a ConfigMap; credentials in a Secret mounted as files, read with
   `password_file`.
@@ -80,8 +85,8 @@ Profile with `admin.pprof: true` and
 - A `LoadBalancer` Service for dial-out and a `ClusterIP` Service with
   Prometheus scrape annotations.
 
-Config changes need a pod restart; use a checksum annotation or a tool such
-as Reloader to roll pods when the ConfigMap changes.
+Config changes need a pod restart. The Helm chart does this automatically;
+with the raw manifest, use a checksum annotation or a tool such as Reloader.
 
 ## Security checklist
 

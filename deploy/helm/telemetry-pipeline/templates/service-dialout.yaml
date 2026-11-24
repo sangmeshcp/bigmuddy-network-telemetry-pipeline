@@ -1,0 +1,23 @@
+{{- if and .Values.dialoutService.enabled .Values.inputPorts }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "tp.fullname" . }}-dialout
+  labels: {{- include "tp.labels" . | nindent 4 }}
+  {{- with .Values.dialoutService.annotations }}
+  annotations: {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.dialoutService.type }}
+  {{- if and (has .Values.dialoutService.type (list "LoadBalancer" "NodePort")) .Values.dialoutService.externalTrafficPolicy }}
+  externalTrafficPolicy: {{ .Values.dialoutService.externalTrafficPolicy }}
+  {{- end }}
+  {{- with .Values.dialoutService.loadBalancerSourceRanges }}
+  loadBalancerSourceRanges: {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector: {{- include "tp.selectorLabels" . | nindent 4 }}
+  ports:
+    {{- range .Values.inputPorts }}
+    - {name: {{ .name }}, port: {{ .port }}, targetPort: {{ .name }}, protocol: {{ .protocol | default "TCP" }}}
+    {{- end }}
+{{- end }}

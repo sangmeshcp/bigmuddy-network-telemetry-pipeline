@@ -149,21 +149,35 @@ gNMI targets to `deploy/compose/pipeline.yaml`. To try it without a router:
 go run ./cmd/mdt-replay -addr localhost:57500 internal/input/ciscomdt/testdata/*.kvgpb
 ```
 
-## Kubernetes
+## Kubernetes (Helm)
 
-`deploy/kubernetes/pipeline.yaml` contains a ConfigMap, a Deployment with
-liveness and readiness probes and a hardened security context, a ClusterIP
-Service for scraping, and a LoadBalancer Service for device dial-out.
+The chart is published to GHCR with every release:
 
 ```bash
-kubectl create secret generic telemetry-pipeline --from-literal=gnmi-password='...'
-kubectl apply -f deploy/kubernetes/pipeline.yaml
-kubectl port-forward deploy/telemetry-pipeline 9180 &
-curl localhost:9180/readyz
+kubectl create namespace telemetry
+kubectl -n telemetry create secret generic telemetry-pipeline --from-literal=gnmi-password='...'
+helm install telemetry oci://ghcr.io/sangmeshcp/charts/telemetry-pipeline \
+  --version 0.1.0 -n telemetry -f my-values.yaml
+helm test telemetry -n telemetry
 ```
 
-See [Deployment](../operations/deployment.md) for scaling, sizing and
-security guidance.
+Put the pipeline config under `config:` in your values file. The
+[chart README](https://github.com/sangmeshcp/bigmuddy-network-telemetry-pipeline/tree/master/deploy/helm/telemetry-pipeline)
+has a gNMI example and every value. What the chart gives you:
+
+- Every config is validated by `pipeline -check` in an init container, so a
+  bad config fails fast and, with `helm upgrade --atomic`, rolls back.
+- Config changes roll the pods; shutdown drains the queues.
+- Liveness and readiness probes, a hardened security context, an optional
+  ServiceMonitor and PodDisruptionBudget, and a `helm test`.
+- A LoadBalancer Service for device dial-out that keeps source IPs.
+
+CI installs the chart on a kind cluster on every change and checks the
+install, `helm test`, data flowing through the Services, config-change
+rollout and rejection of a bad config.
+
+A plain manifest is also available at `deploy/kubernetes/pipeline.yaml` if
+you don't use Helm.
 
 ## Verify any installation
 

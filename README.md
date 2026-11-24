@@ -306,7 +306,7 @@ Recommended alert rules and queries:
 | **Binary** | [Download a release](https://github.com/sangmeshcp/bigmuddy-network-telemetry-pipeline/releases) (linux/darwin, amd64/arm64, signed, with SBOMs) or `make build`; systemd unit in the [install guide](docs/getting-started/installation.md) |
 | **Container** | `ghcr.io/sangmeshcp/telemetry-pipeline`: multi-arch, distroless, non-root, ~20 MB, cosign-signed |
 | **Compose lab** | [`deploy/compose`](deploy/compose): pipeline + Prometheus 3 + Grafana |
-| **Kubernetes** | [`deploy/kubernetes`](deploy/kubernetes): probes, secrets, hardened security context, dial-out LoadBalancer |
+| **Kubernetes** | Helm chart [`deploy/helm/telemetry-pipeline`](deploy/helm/telemetry-pipeline) (`oci://ghcr.io/sangmeshcp/charts/telemetry-pipeline`): config validated at deploy, rolling config updates, probes, hardened, ServiceMonitor |
 
 Scaling, sizing and the security checklist: [Deployment](docs/operations/deployment.md).
 Common problems: [Troubleshooting](docs/operations/troubleshooting.md).

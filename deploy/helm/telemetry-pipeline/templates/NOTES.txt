@@ -1,0 +1,16 @@
+telemetry-pipeline {{ .Chart.AppVersion }} is installed as "{{ include "tp.fullname" . }}".
+
+Check health:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "tp.fullname" . }} {{ .Values.adminPort }}
+  curl localhost:{{ .Values.adminPort }}/readyz
+
+Device telemetry for Prometheus: svc/{{ include "tp.fullname" . }} port {{ .Values.metricsPort }}
+{{- if .Values.serviceMonitor.enabled }} (ServiceMonitor created){{ end }}
+{{- if and .Values.dialoutService.enabled .Values.inputPorts }}
+
+Point device dial-out at the external address of:
+  kubectl -n {{ .Release.Namespace }} get svc {{ include "tp.fullname" . }}-dialout
+{{- end }}
+
+Run the chart's self-test:  helm test {{ .Release.Name }} -n {{ .Release.Namespace }}
+Docs: https://sangameshpatil.com/bigmuddy-network-telemetry-pipeline/

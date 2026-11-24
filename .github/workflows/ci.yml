@@ -256,6 +256,80 @@ jobs:
           cache-to: type=gha,mode=max
 
   # ---------------------------------------------------------------------------
+  helm:
+    name: helm chart (lint, schema, install on kind, upgrade, rollback)
+    runs-on: ubuntu-latest
+    needs: unit
+    timeout-minutes: 20
+    env:
+      CHART: deploy/helm/telemetry-pipeline
+      REL: tp
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with: {go-version-file: go.mod}
+      - uses: azure/setup-helm@v4
+        with: {version: v3.19.0}
+      - name: lint and schema-validate (default and all features on)
+        run: |
+          helm lint "$CHART" --strict
+          go install github.com/yannh/kubeconform/cmd/kubeconform@v0.7.0
+          helm template t "$CHART" | kubeconform -strict -summary
+          helm template t "$CHART" -f "$CHART/ci/all-features-values.yaml" | kubeconform -strict -summary -skip ServiceMonitor,PrometheusRule
+      - name: rendered config passes pipeline -check
+        run: |
+          make build
+          helm template t "$CHART" --show-only templates/configmap.yaml \
+            | python3 -c 'import sys,yaml; print(yaml.safe_load(sys.stdin)["data"]["pipeline.yaml"])' > /tmp/cfg.yaml
+          ./bin/pipeline -config /tmp/cfg.yaml -check
+      - name: build image
+        run: docker build -t telemetry-pipeline:ci --build-arg VERSION=ci .
+      - uses: helm/kind-action@v1
+      - name: install
+        run: |
+          kind load docker-image telemetry-pipeline:ci --name chart-testing
+          helm install "$REL" "$CHART" --wait --timeout 3m \
+            --set image.repository=telemetry-pipeline --set image.tag=ci --set image.pullPolicy=Never \
+            --set dialoutService.type=ClusterIP
+          kubectl get pods -o wide
+      - name: helm test
+        run: helm test "$REL" --logs
+      - name: end-to-end through the Services (replay IOS XR telemetry)
+        run: |
+          kubectl port-forward "svc/$REL-telemetry-pipeline" 9180 9273 >/dev/null 2>&1 &
+          kubectl port-forward "svc/$REL-telemetry-pipeline-dialout" 57500 >/dev/null 2>&1 &
+          sleep 3
+          scripts/smoke.sh
+      - name: config change rolls the pods
+        run: |
+          D="deploy/$REL-telemetry-pipeline"
+          sum() { kubectl get $D -o jsonpath='{.spec.template.metadata.annotations.checksum/config}'; }
+          rs() { kubectl get $D -o jsonpath='{.status.observedGeneration}'; }
+          before=$(sum); gen_before=$(rs)
+          helm upgrade "$REL" "$CHART" --reuse-values --set config.log.level=debug --wait --timeout 3m
+          kubectl rollout status $D --timeout 2m
+          after=$(sum); gen_after=$(rs)
+          echo "checksum $before -> $after, generation $gen_before -> $gen_after"
+          test "$before" != "$after" && test "$gen_after" -gt "$gen_before"
+      - name: invalid config is rejected and rolled back
+        run: |
+          rev=$(helm history "$REL" -o json | python3 -c 'import sys,json; print(json.load(sys.stdin)[-1]["revision"])')
+          if helm upgrade "$REL" "$CHART" --reuse-values --set config.outputs[0].bogus_key=1 \
+               --wait --timeout 90s --atomic; then
+            echo "::error::upgrade with an invalid config should have failed"; exit 1
+          fi
+          kubectl rollout status "deploy/$REL-telemetry-pipeline" --timeout 2m
+          helm history "$REL"
+          helm test "$REL"
+          echo "invalid config rejected; release still serving (was revision $rev)"
+      - name: diagnostics on failure
+        if: failure()
+        run: |
+          kubectl get all -o wide
+          kubectl describe pods -l app.kubernetes.io/instance=$REL | tail -80
+          kubectl logs -l app.kubernetes.io/instance=$REL --all-containers --tail=80 || true
+
+  # ---------------------------------------------------------------------------
   config-examples:
     name: example configs validate
     runs-on: ubuntu-latest

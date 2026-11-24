@@ -1,0 +1,122 @@
+# Default values for telemetry-pipeline.
+
+image:
+  repository: ghcr.io/sangmeshcp/telemetry-pipeline
+  # Defaults to the chart's appVersion.
+  tag: ""
+  # Set to pin by digest (takes precedence over tag), e.g. "sha256:…".
+  digest: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# Number of replicas. Each replica runs the full config: for gNMI dial-in,
+# give each release its own target list rather than scaling replicas (every
+# replica would subscribe to every target). MDT dial-out scales horizontally.
+replicaCount: 1
+
+# -- The pipeline configuration (rendered verbatim to pipeline.yaml).
+# See https://sangameshpatil.com/bigmuddy-network-telemetry-pipeline/configuration/overview/
+# Keep admin.listen and the prometheus output's listen in step with
+# adminPort and metricsPort below. Reference secrets with ${ENV} (see env /
+# envFrom) or *_file options pointing at /run/secrets/pipeline/<key>.
+config:
+  log: {level: info, format: json}
+  admin: {listen: ":9180"}
+  inputs:
+    - name: dialout
+      type: cisco_mdt
+      transport: grpc
+      listen: ":57500"
+  outputs:
+    - name: prom
+      type: prometheus
+      listen: ":9273"
+      string_fields: info
+
+# -- Use an existing ConfigMap (key pipeline.yaml) instead of `config`.
+existingConfigMap: ""
+
+# -- Validate the config with `pipeline -check` in an init container, so a
+# bad config fails fast with a readable error instead of crash-looping.
+validateConfig: true
+
+# Secret mounted read-only at /run/secrets/pipeline (use with *_file options).
+secrets:
+  existingSecret: ""
+
+# Extra environment variables, e.g. for ${GNMI_PASSWORD} in the config.
+env: []
+#  - name: GNMI_PASSWORD
+#    valueFrom: {secretKeyRef: {name: gnmi, key: password}}
+envFrom: []
+
+adminPort: 9180
+metricsPort: 9273
+
+# Ports that inputs listen on (container ports + the dial-out Service).
+inputPorts:
+  - name: mdt-grpc
+    port: 57500
+    protocol: TCP
+
+service:
+  # ClusterIP Service for the admin endpoint and the Prometheus exporter.
+  type: ClusterIP
+  annotations: {}
+
+dialoutService:
+  # Exposes inputPorts so devices outside the cluster can dial out to us.
+  enabled: true
+  type: LoadBalancer
+  # Local keeps device source IPs (used as the `source` tag fallback).
+  externalTrafficPolicy: Local
+  loadBalancerSourceRanges: []
+  annotations: {}
+
+serviceMonitor:
+  # Requires the Prometheus Operator CRDs.
+  enabled: false
+  interval: 30s
+  scrapeTimeout: 10s
+  labels: {}
+  # Scrape the device telemetry exporter (in addition to self-metrics).
+  scrapeTelemetry: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podAnnotations: {}
+podLabels: {}
+
+# Longer than the pipeline's 30s drain timeout so queues flush on shutdown.
+terminationGracePeriodSeconds: 45
+
+resources:
+  requests: {cpu: 250m, memory: 256Mi}
+  limits: {memory: 1Gi}
+
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile: {type: RuntimeDefault}
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities: {drop: [ALL]}
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []
+
+extraVolumes: []
+extraVolumeMounts: []

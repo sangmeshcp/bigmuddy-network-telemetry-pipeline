@@ -1,0 +1,10 @@
+{{- if not .Values.existingConfigMap }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "tp.fullname" . }}
+  labels: {{- include "tp.labels" . | nindent 4 }}
+data:
+  pipeline.yaml: |
+    {{- toYaml .Values.config | nindent 4 }}
+{{- end }}
