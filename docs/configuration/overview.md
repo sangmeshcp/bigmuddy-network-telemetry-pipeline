@@ -66,7 +66,46 @@ retry worker:
 | `max_retries` | `3` | Retries per batch on transient errors. `-1` disables retries. |
 | `write_timeout` | `10s` | Timeout for a single write |
 
+| `queue` | `{type: memory}` | Where to buffer: `memory`, or a durable `disk` queue (below) |
+
 Durations use Go syntax: `500ms`, `10s`, `5m`, `1h`.
+
+### Durable disk queues
+
+By default an output buffers in memory: fast, but whatever is queued is lost
+if the process restarts, and a destination outage longer than the retries
+loses data. For outputs where that matters (warehouses, object storage,
+Kafka) use a disk queue:
+
+```yaml
+outputs:
+  - name: lake
+    type: parquet
+    # ...
+    batch_size: 200000
+    flush_interval: 1m
+    queue:
+      type: disk
+      dir: /var/lib/pipeline/queue/lake   # one directory per output
+      max_bytes: 10737418240              # 10 GiB (default 1 GiB)
+```
+
+| Behaviour | Memory queue | Disk queue |
+|---|---|---|
+| Survives a restart | ❌ | ✅ queued data is delivered after restart |
+| Destination down | retried `max_retries` times, then dropped | **retried until it succeeds**; data waits on disk |
+| Queue full | new data dropped (`queue_full`) | **oldest** data dropped (`disk_full`) |
+| Delivery | at-most-once | at-least-once (a batch written just before a crash may be re-sent) |
+
+Records are checksummed. Writes reach the OS immediately (safe against a
+process crash) and are fsynced every second (bounds loss on power failure).
+`pipeline_output_disk_queue_bytes{output}` shows the backlog.
+
+!!! tip "Kubernetes"
+    The Helm chart's root filesystem is read-only. Mount a volume for the
+    queue with `extraVolumes` / `extraVolumeMounts`. Use a PersistentVolume
+    if data must survive the pod being rescheduled; an `emptyDir` survives
+    only container restarts.
 
 ## Environment variables and secrets
 

@@ -51,6 +51,11 @@ The two queues behave differently on purpose.
 Drops are always visible:
 `pipeline_output_dropped_total{output="…",reason="queue_full"}`.
 
+An output can instead use a **durable disk queue** (`queue: {type: disk}`):
+data survives restarts and destination outages, and when the queue is full
+the *oldest* data is dropped (`reason="disk_full"`). See
+[durable disk queues](../configuration/overview.md#durable-disk-queues).
+
 ## Batching and retries
 
 Each output worker collects metrics until it has `batch_size` of them or

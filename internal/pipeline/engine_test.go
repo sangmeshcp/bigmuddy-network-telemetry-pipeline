@@ -242,3 +242,77 @@ outputs: [{name: a, type: test_rec}]
 		}
 	}
 }
+
+func TestDiskQueueSurvivesOutageAndRestart(t *testing.T) {
+	old := DrainTimeout
+	DrainTimeout = 300 * time.Millisecond
+	defer func() { DrainTimeout = old }()
+	dir := t.TempDir()
+	cfg := `
+inputs: [{type: test_gen}]
+outputs:
+  - {name: d, type: test_rec, batch_size: 10, flush_interval: 20ms, queue: {type: disk, dir: "` + dir + `"}}
+`
+	// Run 1: the destination is down the whole time.
+	down := &recOutput{}
+	down.failN.Store(1 << 30)
+	e, reg := build(t, cfg, 100, map[string]*recOutput{"d": down})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error)
+	go func() { done <- e.Run(ctx) }()
+	waitFor(t, func() bool { return down.attempts.Load() >= 3 }) // retrying past max_retries (3)
+	waitFor(t, func() bool { return testutil.ToFloat64(e.m.enqueued.WithLabelValues("d")) == 100 })
+	cancel()
+	<-done
+	if down.count() != 0 {
+		t.Fatal("nothing should have been written")
+	}
+	if v := testutil.ToFloat64(e.m.dropped.WithLabelValues("d", "write_failed")); v != 0 {
+		t.Fatalf("durable output dropped %v metrics during an outage", v)
+	}
+	if n, _ := testutil.GatherAndCount(reg, "pipeline_output_disk_queue_bytes"); n != 1 {
+		t.Error("disk queue gauge missing")
+	}
+
+	// Run 2: destination back; no new input. Everything queued is delivered once.
+	up := &recOutput{}
+	e2, _ := build(t, cfg, 0, map[string]*recOutput{"d": up})
+	ctx2, cancel2 := context.WithCancel(context.Background())
+	go func() { done <- e2.Run(ctx2) }()
+	waitFor(t, func() bool { return up.count() >= 100 })
+	cancel2()
+	<-done
+	seen := map[int64]int{}
+	for _, m := range up.got {
+		seen[m.Fields["i"].(int64)]++
+	}
+	for i := int64(0); i < 100; i++ {
+		if seen[i] != 1 {
+			t.Fatalf("metric %d delivered %d times", i, seen[i])
+		}
+	}
+
+	// Run 3: nothing left over.
+	again := &recOutput{}
+	e3, _ := build(t, cfg, 0, map[string]*recOutput{"d": again})
+	ctx3, cancel3 := context.WithCancel(context.Background())
+	go func() { done <- e3.Run(ctx3) }()
+	time.Sleep(200 * time.Millisecond)
+	cancel3()
+	<-done
+	if again.count() != 0 {
+		t.Fatalf("acknowledged data redelivered: %d", again.count())
+	}
+}
+
+func TestQueueConfigValidation(t *testing.T) {
+	for _, bad := range []string{
+		`outputs: [{type: test_rec, queue: {type: disk}}]`,
+		`outputs: [{type: test_rec, queue: {type: tape}}]`,
+		`outputs: [{name: a, type: test_rec, queue: {type: disk, dir: /x}}, {name: b, type: test_rec, queue: {type: disk, dir: /x}}]`,
+	} {
+		if _, err := config.Parse([]byte("inputs: [{type: test_gen}]\n" + bad)); err == nil {
+			t.Errorf("expected error for %s", bad)
+		}
+	}
+}

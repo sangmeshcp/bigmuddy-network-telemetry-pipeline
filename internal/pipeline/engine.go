@@ -87,8 +87,23 @@ func New(cfg *config.Config, log *slog.Logger, reg prometheus.Registerer) (*Engi
 		if err != nil {
 			return nil, fmt.Errorf("output %q: %w", p.Name, err)
 		}
-		e.outputs = append(e.outputs, &outputWorker{name: p.Name, out: o, d: p.Delivery,
-			q: make(chan *telemetry.Metric, p.Delivery.QueueSize), m: e.m, log: env("output", p).Logger})
+		w := &outputWorker{name: p.Name, out: o, d: p.Delivery, m: e.m, log: env("output", p).Logger}
+		if p.Delivery.Queue.Type == "disk" {
+			name := p.Name
+			dq, err := openDiskQueue(p.Delivery.Queue.Dir, p.Delivery.Queue.MaxBytes, 0, func(n int) {
+				e.m.dropped.WithLabelValues(name, "disk_full").Add(float64(n))
+			})
+			if err != nil {
+				return nil, fmt.Errorf("output %q: disk queue: %w", p.Name, err)
+			}
+			w.dq = dq
+			reg.MustRegister(prometheus.NewGaugeFunc(prometheus.GaugeOpts{Namespace: "pipeline",
+				Name: "output_disk_queue_bytes", Help: "Bytes waiting in an output's disk queue.",
+				ConstLabels: prometheus.Labels{"output": p.Name}}, func() float64 { return float64(dq.Bytes()) }))
+		} else {
+			w.q = make(chan *telemetry.Metric, p.Delivery.QueueSize)
+		}
+		e.outputs = append(e.outputs, w)
 	}
 	e.initSeries()
 	return e, nil
@@ -108,6 +123,9 @@ func (e *Engine) initSeries() {
 		e.m.writeErrors.WithLabelValues(w.name)
 		for _, reason := range []string{"queue_full", "write_failed"} {
 			e.m.dropped.WithLabelValues(w.name, reason)
+		}
+		if w.dq != nil {
+			e.m.dropped.WithLabelValues(w.name, "disk_full")
 		}
 	}
 }
@@ -170,7 +188,12 @@ func (e *Engine) Run(ctx context.Context) error {
 	close(e.routerQ)
 	<-routerDone
 	for _, w := range e.outputs {
-		close(w.q)
+		if w.dq != nil {
+			// Unread data stays on disk and is delivered after restart.
+			w.dq.Close()
+		} else {
+			close(w.q)
+		}
 	}
 	drained := make(chan struct{})
 	go func() { outWG.Wait(); close(drained) }()
@@ -232,12 +255,22 @@ type outputWorker struct {
 	name string
 	out  Output
 	d    config.Delivery
-	q    chan *telemetry.Metric
+	q    chan *telemetry.Metric // memory queue
+	dq   *diskQueue             // or disk queue
 	m    *selfMetrics
 	log  *slog.Logger
 }
 
 func (w *outputWorker) enqueue(batch []*telemetry.Metric) {
+	if w.dq != nil {
+		if err := w.dq.Append(batch); err != nil {
+			w.log.Warn("disk queue append failed", "err", err)
+			w.m.dropped.WithLabelValues(w.name, "queue_error").Add(float64(len(batch)))
+			return
+		}
+		w.m.enqueued.WithLabelValues(w.name).Add(float64(len(batch)))
+		return
+	}
 	var dropped int
 	for _, m := range batch {
 		select {
@@ -253,12 +286,16 @@ func (w *outputWorker) enqueue(batch []*telemetry.Metric) {
 }
 
 func (w *outputWorker) run(ctx context.Context) {
+	if w.dq != nil {
+		w.runDisk(ctx)
+		return
+	}
 	t := time.NewTicker(w.d.FlushInterval)
 	defer t.Stop()
 	buf := make([]*telemetry.Metric, 0, w.d.BatchSize)
 	flush := func() {
 		if len(buf) > 0 {
-			w.write(ctx, buf)
+			w.write(ctx, buf, false)
 			buf = make([]*telemetry.Metric, 0, w.d.BatchSize)
 		}
 	}
@@ -279,8 +316,62 @@ func (w *outputWorker) run(ctx context.Context) {
 	}
 }
 
-func (w *outputWorker) write(ctx context.Context, batch []*telemetry.Metric) {
+// runDisk batches from the disk queue. A batch is acknowledged (removed
+// from disk) only once it has been written or permanently rejected; if the
+// pipeline stops first, it is delivered again after restart.
+func (w *outputWorker) runDisk(ctx context.Context) {
+	buf := make([]*telemetry.Metric, 0, w.d.BatchSize)
+	var last queuePos
+	var deadline time.Time
+	flush := func() {
+		if len(buf) == 0 {
+			return
+		}
+		if w.write(ctx, buf, true) {
+			if err := w.dq.Ack(last); err != nil {
+				w.log.Warn("disk queue ack failed", "err", err)
+			}
+		}
+		buf = make([]*telemetry.Metric, 0, w.d.BatchSize)
+	}
+	for {
+		rctx, cancel := ctx, context.CancelFunc(func() {})
+		if len(buf) > 0 {
+			rctx, cancel = context.WithDeadline(ctx, deadline)
+		}
+		ms, pos, err := w.dq.Read(rctx)
+		cancel()
+		switch {
+		case err == nil:
+			if len(buf) == 0 {
+				deadline = time.Now().Add(w.d.FlushInterval)
+			}
+			buf = append(buf, ms...)
+			last = pos
+			if len(buf) >= w.d.BatchSize {
+				flush()
+			}
+		case errors.Is(err, errQueueClosed):
+			flush()
+			return
+		case ctx.Err() != nil:
+			return
+		default: // flush deadline reached
+			flush()
+		}
+	}
+}
+
+// write delivers a batch with retries. It reports whether the batch is done
+// with (written, or dropped for good) as opposed to abandoned because ctx
+// ended. Durable (disk-queued) outputs retry transient errors until they
+// succeed; memory-queued outputs give up after MaxRetries.
+func (w *outputWorker) write(ctx context.Context, batch []*telemetry.Metric, durable bool) bool {
 	backoff := 100 * time.Millisecond
+	maxBackoff := 5 * time.Second
+	if durable {
+		maxBackoff = 30 * time.Second
+	}
 	for attempt := 0; ; attempt++ {
 		wctx, cancel := context.WithTimeout(ctx, w.d.WriteTimeout)
 		start := time.Now()
@@ -290,20 +381,31 @@ func (w *outputWorker) write(ctx context.Context, batch []*telemetry.Metric) {
 		if err == nil {
 			w.m.written.WithLabelValues(w.name).Add(float64(len(batch)))
 			w.m.batchSize.WithLabelValues(w.name).Observe(float64(len(batch)))
-			return
+			return true
 		}
 		w.m.writeErrors.WithLabelValues(w.name).Inc()
-		if IsPermanent(err) || attempt >= w.d.MaxRetries || ctx.Err() != nil {
+		if ctx.Err() != nil {
+			if durable {
+				return false // stays on disk; delivered after restart
+			}
+			w.m.dropped.WithLabelValues(w.name, "write_failed").Add(float64(len(batch)))
+			return true
+		}
+		if IsPermanent(err) || (!durable && attempt >= w.d.MaxRetries) {
 			w.log.Warn("dropping batch after write failure", "metrics", len(batch),
 				"attempts", attempt+1, "permanent", IsPermanent(err), "err", err)
 			w.m.dropped.WithLabelValues(w.name, "write_failed").Add(float64(len(batch)))
-			return
+			return true
 		}
-		w.log.Debug("write failed, retrying", "attempt", attempt+1, "backoff", backoff, "err", err)
+		if durable && attempt > 0 && attempt%10 == 0 {
+			w.log.Warn("destination still failing; holding data in the disk queue", "attempts", attempt+1, "err", err)
+		} else {
+			w.log.Debug("write failed, retrying", "attempt", attempt+1, "backoff", backoff, "err", err)
+		}
 		select {
 		case <-time.After(backoff):
 		case <-ctx.Done():
 		}
-		backoff = min(backoff*2, 5*time.Second)
+		backoff = min(backoff*2, maxBackoff)
 	}
 }

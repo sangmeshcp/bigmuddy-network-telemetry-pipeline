@@ -67,12 +67,27 @@ type Delivery struct {
 	QueueSize     int           `yaml:"queue_size"`     // metrics buffered for this output
 	BatchSize     int           `yaml:"batch_size"`     // max metrics per Write
 	FlushInterval time.Duration `yaml:"flush_interval"` // max wait before a partial batch is written
-	MaxRetries    int           `yaml:"max_retries"`    // per batch, on transient errors
+	MaxRetries    int           `yaml:"max_retries"`    // per batch, on transient errors (memory queue)
 	WriteTimeout  time.Duration `yaml:"write_timeout"`
+	Queue         Queue         `yaml:"queue"`
+}
+
+// Queue selects where an output buffers metrics.
+//
+//	memory (default): bounded in-memory queue; lost on restart; transient
+//	                  write errors are retried max_retries times.
+//	disk:             durable segment log in dir; survives restarts and
+//	                  destination outages (transient errors are retried until
+//	                  they succeed); when max_bytes is reached the oldest
+//	                  data is dropped (reason "disk_full").
+type Queue struct {
+	Type     string `yaml:"type"`
+	Dir      string `yaml:"dir"`
+	MaxBytes int64  `yaml:"max_bytes"`
 }
 
 var deliveryKeys = map[string]bool{"queue_size": true, "batch_size": true,
-	"flush_interval": true, "max_retries": true, "write_timeout": true}
+	"flush_interval": true, "max_retries": true, "write_timeout": true, "queue": true}
 
 // UnmarshalYAML captures name/type and keeps the remaining keys for the
 // plugin to decode strictly later.
@@ -240,6 +255,12 @@ func (c *Config) applyDefaults() {
 		if d.WriteTimeout <= 0 {
 			d.WriteTimeout = 10 * time.Second
 		}
+		if d.Queue.Type == "" {
+			d.Queue.Type = "memory"
+		}
+		if d.Queue.Type == "disk" && d.Queue.MaxBytes <= 0 {
+			d.Queue.MaxBytes = 1 << 30
+		}
 	}
 }
 
@@ -272,6 +293,22 @@ func (c *Config) validate() error {
 	check("input", c.Inputs, false)
 	check("processor", c.Processors, false)
 	check("output", c.Outputs, true)
+	dirs := map[string]string{}
+	for _, o := range c.Outputs {
+		q := o.Delivery.Queue
+		switch q.Type {
+		case "memory":
+		case "disk":
+			if q.Dir == "" {
+				errs = append(errs, fmt.Errorf("output %q: queue.dir is required for a disk queue", o.Name))
+			} else if other, dup := dirs[q.Dir]; dup {
+				errs = append(errs, fmt.Errorf("outputs %q and %q share queue.dir %q", other, o.Name, q.Dir))
+			}
+			dirs[q.Dir] = o.Name
+		default:
+			errs = append(errs, fmt.Errorf("output %q: queue.type must be memory or disk, got %q", o.Name, q.Type))
+		}
+	}
 	return errors.Join(errs...)
 }
 
