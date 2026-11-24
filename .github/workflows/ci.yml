@@ -203,7 +203,8 @@ jobs:
           echo '{"identities":[{"name":"ci","credentials":[{"accessKey":"minioadmin","secretKey":"minioadmin"}],"actions":["Admin","Read","Write","List","Tagging"]}]}' > "$RUNNER_TEMP/s3.json"
           docker run -d --name s3 --network host -v "$RUNNER_TEMP/s3.json:/etc/seaweedfs/s3.json:ro" \
             chrislusf/seaweedfs:4.52 server -ip=127.0.0.1 -ip.bind=127.0.0.1 \
-            -s3 -s3.port=9100 -s3.config=/etc/seaweedfs/s3.json
+            -s3 -s3.port=9100 -s3.config=/etc/seaweedfs/s3.json \
+            -s3.port.iceberg=0 -s3.port.lance=0   # its own Iceberg catalog would take :8181
           for i in $(seq 1 60); do
             curl -fsS 127.0.0.1:8123/ping >/dev/null 2>&1 && [ "$(curl -s -o /dev/null -w '%{http_code}' 127.0.0.1:9100/)" != 000 ] && break
             sleep 2
@@ -233,6 +234,8 @@ jobs:
             apache/iceberg-rest-fixture:1.10.0
           for i in $(seq 1 60); do curl -fsS 127.0.0.1:8181/v1/config >/dev/null 2>&1 && break; sleep 2; done
           curl -fsS 127.0.0.1:8181/v1/config
+          # make sure :8181 is the fixture, not something else on the host network
+          test "$(docker inspect -f '{{.State.Running}}' iceberg-rest)" = true
       - name: iceberg output through the REST catalog (write, dedup retry, scan back)
         env:
           ICEBERG_REST_URI: "http://127.0.0.1:8181"
