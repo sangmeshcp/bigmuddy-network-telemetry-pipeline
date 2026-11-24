@@ -1,0 +1,17 @@
+# Keep dependencies current. Updates are grouped to keep PR noise low;
+# CI (including govulncheck) must pass before merging.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule: {interval: weekly}
+    groups:
+      go-dependencies: {patterns: ["*"]}
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: {interval: weekly}
+    groups:
+      actions: {patterns: ["*"]}
+  - package-ecosystem: docker
+    directory: /
+    schedule: {interval: weekly}

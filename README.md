@@ -346,7 +346,11 @@ smoke test. CI runs all of them on every pull request; see
 Adding an input, processor or output takes one Go type and one `Register`
 call: [Writing a plugin](docs/development/writing-plugins.md).
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for how to submit changes.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for how to submit changes (commits are
+signed off under the [DCO](CONTRIBUTING.md#developer-certificate-of-origin-dco)),
+the [Code of Conduct](CODE_OF_CONDUCT.md), [Governance](GOVERNANCE.md) and the
+[Changelog](CHANGELOG.md). Report vulnerabilities privately per
+[SECURITY.md](SECURITY.md).
 
 ## License
 
