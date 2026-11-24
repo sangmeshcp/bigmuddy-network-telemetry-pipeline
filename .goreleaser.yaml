@@ -1,0 +1,109 @@
+# Release configuration. Run by .github/workflows/release.yml when a v* tag is
+# pushed. CI rehearses it on every pull request with --snapshot.
+#
+# Local dry run (no publishing, no signing):
+#   goreleaser release --snapshot --clean --skip=sign,sbom
+version: 2
+
+project_name: telemetry-pipeline
+
+before:
+  hooks:
+    - go mod download
+
+builds:
+  - id: pipeline
+    main: ./cmd/pipeline
+    binary: pipeline
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X main.version=v{{ .Version }}
+    mod_timestamp: "{{ .CommitTimestamp }}"   # reproducible builds
+
+  - id: mdt-replay
+    main: ./cmd/mdt-replay
+    binary: mdt-replay
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags: [-s -w]
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: default
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+      - examples/*.yaml
+
+checksum:
+  name_template: "{{ .ProjectName }}_{{ .Version }}_checksums.txt"
+  algorithm: sha256
+
+# SPDX SBOM per archive (requires syft on PATH; installed by the workflow).
+sboms:
+  - artifacts: archive
+
+# Keyless signing of the checksum file with Sigstore. Verifying the checksum
+# signature transitively verifies every archive.
+signs:
+  - cmd: cosign
+    certificate: "${artifact}.pem"
+    signature: "${artifact}.sig"
+    args:
+      - sign-blob
+      - --output-certificate=${certificate}
+      - --output-signature=${signature}
+      - ${artifact}
+      - --yes
+    artifacts: checksum
+
+changelog:
+  use: github
+  sort: asc
+  groups:
+    - title: Features
+      regexp: '(?i)^.*\b(add|support|introduce|new)\b'
+      order: 0
+    - title: Fixes
+      regexp: '(?i)^.*\bfix'
+      order: 1
+    - title: Other
+      order: 999
+  filters:
+    exclude:
+      - '^Merge '
+
+release:
+  draft: false
+  prerelease: auto        # v0.1.0-rc.1 is marked as a pre-release
+  footer: |
+    ## Container image
+
+    ```
+    docker pull ghcr.io/{{ .Env.IMAGE_OWNER }}/telemetry-pipeline:{{ .Tag }}
+    ```
+
+    ## Verify
+
+    ```bash
+    # Binaries: verify the signed checksum file, then the archive
+    cosign verify-blob \
+      --certificate {{ .ProjectName }}_{{ .Version }}_checksums.txt.pem \
+      --signature   {{ .ProjectName }}_{{ .Version }}_checksums.txt.sig \
+      --certificate-identity-regexp 'https://github.com/{{ .Env.GITHUB_REPOSITORY }}/' \
+      --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+      {{ .ProjectName }}_{{ .Version }}_checksums.txt
+    sha256sum --ignore-missing -c {{ .ProjectName }}_{{ .Version }}_checksums.txt
+
+    # Container image
+    cosign verify ghcr.io/{{ .Env.IMAGE_OWNER }}/telemetry-pipeline:{{ .Tag }} \
+      --certificate-identity-regexp 'https://github.com/{{ .Env.GITHUB_REPOSITORY }}/' \
+      --certificate-oidc-issuer https://token.actions.githubusercontent.com
+    ```

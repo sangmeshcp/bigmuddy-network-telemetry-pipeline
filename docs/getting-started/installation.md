@@ -3,6 +3,43 @@
 The pipeline is a single static binary with no runtime dependencies. Pick
 whichever packaging suits your environment.
 
+## Download a release (recommended)
+
+Every [release](https://github.com/sangmeshcp/bigmuddy-network-telemetry-pipeline/releases)
+publishes archives for Linux and macOS on amd64 and arm64. Each archive
+contains `pipeline`, the `mdt-replay` test tool, the license and example
+configs.
+
+```bash
+VERSION=0.1.0                                    # pick from the releases page
+OS=linux ARCH=amd64                              # or darwin / arm64
+BASE=https://github.com/sangmeshcp/bigmuddy-network-telemetry-pipeline/releases/download/v$VERSION
+curl -fLO "$BASE/telemetry-pipeline_${VERSION}_${OS}_${ARCH}.tar.gz"
+curl -fLO "$BASE/telemetry-pipeline_${VERSION}_checksums.txt"
+sha256sum --ignore-missing -c telemetry-pipeline_${VERSION}_checksums.txt
+tar xzf telemetry-pipeline_${VERSION}_${OS}_${ARCH}.tar.gz
+sudo install pipeline /usr/local/bin/
+pipeline -version
+```
+
+??? tip "Verify the signature (supply-chain security)"
+    Releases are signed keylessly with [Sigstore cosign](https://docs.sigstore.dev/)
+    from the release workflow. Each release also ships an SPDX SBOM per archive.
+
+    ```bash
+    curl -fLO "$BASE/telemetry-pipeline_${VERSION}_checksums.txt.pem"
+    curl -fLO "$BASE/telemetry-pipeline_${VERSION}_checksums.txt.sig"
+    cosign verify-blob \
+      --certificate telemetry-pipeline_${VERSION}_checksums.txt.pem \
+      --signature   telemetry-pipeline_${VERSION}_checksums.txt.sig \
+      --certificate-identity-regexp 'https://github.com/sangmeshcp/bigmuddy-network-telemetry-pipeline/' \
+      --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+      telemetry-pipeline_${VERSION}_checksums.txt
+    ```
+
+    A valid signature over the checksum file, plus a passing `sha256sum -c`,
+    proves the archive was built by this repository's release workflow.
+
 ## From source
 
 Requires Go 1.26.11 or newer.
@@ -52,17 +89,35 @@ journalctl -u pipeline -f
 
 ## Container image
 
-The image is built from the repository's `Dockerfile`: a static binary on
-`gcr.io/distroless/static`, running as a non-root user, about 20 MB.
+Published images are multi-arch (amd64, arm64): a static binary on
+`gcr.io/distroless/static`, running as a non-root user, about 20 MB. Each one
+is signed with cosign and carries SBOM and build-provenance attestations.
 
 ```bash
-make image                                   # tags telemetry-pipeline:<git version>
 docker run --rm \
   -v "$PWD/pipeline.yaml:/etc/pipeline/pipeline.yaml:ro" \
   -e GNMI_PASSWORD \
   -p 9180:9180 -p 9273:9273 -p 57500:57500 \
-  telemetry-pipeline:<version>
+  ghcr.io/sangmeshcp/telemetry-pipeline:v0.1.0
 ```
+
+| Tag | Meaning |
+|---|---|
+| `vX.Y.Z` | An exact release. Pin this in production. |
+| `vX.Y` | Latest patch of a minor release |
+| `latest` | Latest stable release (pre-releases excluded) |
+
+Verify an image before deploying:
+
+```bash
+cosign verify ghcr.io/sangmeshcp/telemetry-pipeline:v0.1.0 \
+  --certificate-identity-regexp 'https://github.com/sangmeshcp/bigmuddy-network-telemetry-pipeline/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+To build your own image instead: `make image`, or
+`docker buildx build --platform linux/amd64,linux/arm64 .` for both
+architectures.
 
 Without a mounted config the image runs `examples/minimal.yaml`, which accepts
 MDT gRPC dial-out on `:57500` and serves Prometheus metrics on `:9273`.
