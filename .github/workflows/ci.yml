@@ -32,6 +32,15 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with: {go-version-file: go.mod}
+      # CI runs with GOTOOLCHAIN=local, so builds use whatever setup-go
+      # installed; make sure that is go.mod's toolchain (the same Go as the
+      # container image), not just the minimum `go` version.
+      - name: Go toolchain matches go.mod
+        run: |
+          want=$(go mod edit -json | jq -r '.Toolchain // ("go" + .Go)')
+          got=$(go env GOVERSION)
+          echo "go.mod toolchain: $want, in use: $got"
+          test "$want" = "$got"
       - name: gofmt
         run: test -z "$(gofmt -l .)" || (gofmt -d .; exit 1)
       - name: go mod tidy is clean

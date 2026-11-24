@@ -2,6 +2,8 @@ module github.com/sangmeshcp/bigmuddy-network-telemetry-pipeline
 
 go 1.26.11
 
+toolchain go1.27.3
+
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.51.0
 	github.com/apache/arrow-go/v18 v18.9.0

@@ -39,6 +39,9 @@ and exported metric names.
   policy, governance, this changelog, DCO check and Dependabot.
 
 ### Changed
+- Builds use Go 1.27.3 everywhere (CI, release binaries, container image)
+  via `toolchain go1.27.3` in `go.mod`; building from source still needs
+  only Go 1.26.11+.
 - The Prometheus exporter serves the classic text format (not OpenMetrics),
   so series names stay stable when counters are typed.
 
