@@ -31,10 +31,11 @@ type Output struct {
 }
 
 type line struct {
-	Name      string            `json:"name"`
-	Tags      map[string]string `json:"tags"`
-	Fields    map[string]any    `json:"fields"`
-	Timestamp time.Time         `json:"timestamp"`
+	Name      string                    `json:"name"`
+	Tags      map[string]string         `json:"tags"`
+	Fields    map[string]any            `json:"fields"`
+	Timestamp time.Time                 `json:"timestamp"`
+	Kinds     map[string]telemetry.Kind `json:"kinds,omitempty"`
 }
 
 // New opens the destination.
@@ -59,7 +60,7 @@ func (o *Output) Write(_ context.Context, batch []*telemetry.Metric) error {
 	defer o.mu.Unlock()
 	enc := json.NewEncoder(o.w)
 	for _, m := range batch {
-		if err := enc.Encode(line{m.Name, m.Tags, m.Fields, m.Timestamp}); err != nil {
+		if err := enc.Encode(line{m.Name, m.Tags, m.Fields, m.Timestamp, m.Kinds}); err != nil {
 			return err
 		}
 	}

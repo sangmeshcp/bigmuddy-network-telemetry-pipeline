@@ -94,6 +94,9 @@ processors:
     # rename: {interface-name: interface_name}  # align Cisco native & OpenConfig
     # drop: [subscription]
 
+  - type: metric_types
+    presets: [network]                        # counters vs gauges (OTLP Sums, Prometheus counter type)
+
   # - type: rename
   #   names:  [{match: "^openconfig:", replace: ""}]
   #   fields: [{match: "^state/counters/", replace: ""}]

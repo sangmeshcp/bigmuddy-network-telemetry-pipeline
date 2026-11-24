@@ -56,6 +56,8 @@ type Record struct {
 	Tags      map[string]string `json:"tags"`
 	Fields    map[string]any    `json:"fields"`
 	Timestamp time.Time         `json:"timestamp"`
+	// Kinds marks fields typed by the metric_types processor ("counter"/"gauge").
+	Kinds map[string]telemetry.Kind `json:"kinds,omitempty"`
 }
 
 // Output is the Kafka producer.
@@ -145,7 +147,7 @@ func New(p *config.Plugin, env pipeline.Env) (pipeline.Output, error) {
 func (o *Output) Write(ctx context.Context, batch []*telemetry.Metric) error {
 	recs := make([]*kgo.Record, 0, len(batch))
 	for _, m := range batch {
-		val, err := json.Marshal(Record{Name: m.Name, Tags: m.Tags, Fields: m.Fields, Timestamp: m.Timestamp})
+		val, err := json.Marshal(Record{Name: m.Name, Tags: m.Tags, Fields: m.Fields, Timestamp: m.Timestamp, Kinds: m.Kinds})
 		if err != nil {
 			continue
 		}
