@@ -246,7 +246,7 @@ jobs:
         run: go test -tags integration -count=1 -v -run TestIcebergRESTOnMinIO ./integration/
       - name: iceberg interop (table written by iceberg-go, read by PyIceberg)
         run: |
-          pip install --quiet "pyiceberg[sql-sqlite,pyarrow]==0.10.0"
+          pip install --quiet -r scripts/requirements-interop.txt
           dir=$(mktemp -d)
           ICEBERG_INTEROP_DIR=$dir go test -count=1 -run TestInteropExport ./internal/output/iceberg/
           python3 scripts/pyiceberg-check.py "$dir"
