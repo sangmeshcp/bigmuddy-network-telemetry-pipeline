@@ -31,16 +31,22 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
-        with: {go-version-file: go.mod}
-      # CI runs with GOTOOLCHAIN=local, so builds use whatever setup-go
-      # installed; make sure that is go.mod's toolchain (the same Go as the
-      # container image), not just the minimum `go` version.
-      - name: Go toolchain matches go.mod
+        with: {go-version-file: .go-version}
+      # One Go version everywhere. CI runs with GOTOOLCHAIN=local and
+      # setup-go reads .go-version (it ignores go.mod's toolchain line), so
+      # check that .go-version, go.mod's toolchain, the Dockerfile's golang
+      # image (bumped by Dependabot) and the Go in use all agree.
+      - name: Go version is the same everywhere
         run: |
-          want=$(go mod edit -json | jq -r '.Toolchain // ("go" + .Go)')
-          got=$(go env GOVERSION)
-          echo "go.mod toolchain: $want, in use: $got"
-          test "$want" = "$got"
+          toolchain=$(go mod edit -json | jq -r '.Toolchain // ("go" + .Go)')
+          dotfile=go$(tr -d '[:space:]' < .go-version)
+          docker=go$(sed -nE 's/^FROM .*golang:([0-9.]+).*/\1/p' Dockerfile)
+          inuse=$(go env GOVERSION)
+          echo "go.mod toolchain=$toolchain .go-version=$dotfile Dockerfile=$docker in use=$inuse"
+          if [ "$toolchain" != "$dotfile" ] || [ "$toolchain" != "$docker" ] || [ "$toolchain" != "$inuse" ]; then
+            echo "::error::Go versions differ. Set the same version in go.mod (toolchain), .go-version and the Dockerfile."
+            exit 1
+          fi
       - name: gofmt
         run: test -z "$(gofmt -l .)" || (gofmt -d .; exit 1)
       - name: go mod tidy is clean
@@ -61,7 +67,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
-        with: {go-version-file: go.mod}
+        with: {go-version-file: .go-version}
       - name: test (race, coverage)
         run: go test -race -count=1 -covermode=atomic -coverprofile=coverage.out ./...
       - name: coverage summary
@@ -87,7 +93,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
-        with: {go-version-file: go.mod}
+        with: {go-version-file: .go-version}
       - name: install generators (versions match committed code)
         run: |
           go install github.com/bufbuild/buf/cmd/buf@v1.47.2
@@ -107,7 +113,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
-        with: {go-version-file: go.mod}
+        with: {go-version-file: .go-version}
       - name: start InfluxDB 2, Kafka (KRaft), Prometheus 3
         run: |
           docker run -d --name influxdb -p 8086:8086 \
@@ -146,7 +152,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
-        with: {go-version-file: go.mod}
+        with: {go-version-file: .go-version}
       - name: start OpenConfig reference gNMI target (fake_server)
         run: scripts/gnmi-reference-target.sh start > "$RUNNER_TEMP/gnmi.env"
       - name: gNMI integration test
@@ -171,7 +177,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
-        with: {go-version-file: go.mod}
+        with: {go-version-file: .go-version}
       - name: install containerlab
         run: bash -c "$(curl -sL https://get.containerlab.dev)"
       - name: deploy SR Linux
@@ -200,7 +206,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
-        with: {go-version-file: go.mod}
+        with: {go-version-file: .go-version}
       # S3 API: SeaweedFS (MinIO no longer publishes container images), with
       # SigV4 credentials enforced. The MINIO_* variable names are historical:
       # the tests take any S3-compatible endpoint.
@@ -286,7 +292,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
-        with: {go-version-file: go.mod}
+        with: {go-version-file: .go-version}
       - uses: docker/setup-buildx-action@v4
       - name: build image
         uses: docker/build-push-action@v7
@@ -327,7 +333,7 @@ jobs:
       - uses: actions/checkout@v7
         with: {fetch-depth: 0}
       - uses: actions/setup-go@v7
-        with: {go-version-file: go.mod}
+        with: {go-version-file: .go-version}
       - uses: anchore/sbom-action/download-syft@v0
       - uses: goreleaser/goreleaser-action@v7
         with:
@@ -363,7 +369,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
-        with: {go-version-file: go.mod}
+        with: {go-version-file: .go-version}
       - uses: azure/setup-helm@v5
         with: {version: v3.19.0}
       - name: lint and schema-validate (default and all features on)
@@ -438,7 +444,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
-        with: {go-version-file: go.mod}
+        with: {go-version-file: .go-version}
       - name: install Prometheus + promtool
         run: |
           curl -fsSL "https://github.com/prometheus/prometheus/releases/download/v${PROM_VERSION}/prometheus-${PROM_VERSION}.linux-amd64.tar.gz" | tar xz
@@ -483,7 +489,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
-        with: {go-version-file: go.mod}
+        with: {go-version-file: .go-version}
       - run: make build
       - run: |
           for f in examples/*.yaml deploy/compose/pipeline.yaml; do
@@ -497,5 +503,5 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
-        with: {go-version-file: go.mod}
+        with: {go-version-file: .go-version}
       - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
