@@ -7,7 +7,7 @@
 
 # The build stage always runs on the build machine's architecture and
 # cross-compiles, so multi-arch builds don't need CPU emulation.
-FROM --platform=$BUILDPLATFORM golang:1.27.3 AS build
+FROM --platform=$BUILDPLATFORM golang:1.27.4 AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download

@@ -3,6 +3,8 @@
 //	filter  – keep/drop metrics by name, tag or field (regular expressions)
 //	tags    – add static tags, per-source inventory tags, rename/drop tags
 //	rename  – rewrite metric names and field names with regex replacements
+//	metric_types – mark fields as counters or gauges (presets for network models)
+//	downsample   – emit at most one sample per series per interval
 package processor
 
 import (
@@ -213,13 +215,21 @@ func (r *rename) Process(batch []*telemetry.Metric) []*telemetry.Metric {
 			continue
 		}
 		renamed := make(map[string]any, len(m.Fields))
+		var kinds map[string]telemetry.Kind
 		for k, v := range m.Fields {
+			nk := k
 			for _, rl := range r.c.Fields {
-				k = rl.re.ReplaceAllString(k, rl.Replace)
+				nk = rl.re.ReplaceAllString(nk, rl.Replace)
 			}
-			renamed[k] = v
+			renamed[nk] = v
+			if kind, ok := m.Kinds[k]; ok {
+				if kinds == nil {
+					kinds = make(map[string]telemetry.Kind, len(m.Kinds))
+				}
+				kinds[nk] = kind
+			}
 		}
-		m.Fields = renamed
+		m.Fields, m.Kinds = renamed, kinds
 	}
 	return batch
 }

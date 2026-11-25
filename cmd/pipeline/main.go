@@ -20,11 +20,13 @@ import (
 	"github.com/sangmeshcp/bigmuddy-network-telemetry-pipeline/internal/admin"
 	"github.com/sangmeshcp/bigmuddy-network-telemetry-pipeline/internal/config"
 	"github.com/sangmeshcp/bigmuddy-network-telemetry-pipeline/internal/output/otlp"
+	"github.com/sangmeshcp/bigmuddy-network-telemetry-pipeline/internal/output/parquet"
 	"github.com/sangmeshcp/bigmuddy-network-telemetry-pipeline/internal/pipeline"
 
 	// Plugins register themselves.
 	_ "github.com/sangmeshcp/bigmuddy-network-telemetry-pipeline/internal/input/ciscomdt"
 	_ "github.com/sangmeshcp/bigmuddy-network-telemetry-pipeline/internal/input/gnmi"
+	_ "github.com/sangmeshcp/bigmuddy-network-telemetry-pipeline/internal/output/clickhouse"
 	_ "github.com/sangmeshcp/bigmuddy-network-telemetry-pipeline/internal/output/file"
 	_ "github.com/sangmeshcp/bigmuddy-network-telemetry-pipeline/internal/output/influxdb"
 	_ "github.com/sangmeshcp/bigmuddy-network-telemetry-pipeline/internal/output/kafka"
@@ -65,6 +67,7 @@ func run(ctx context.Context, args []string, started chan<- string) int {
 	log := newLogger(cfg.Log)
 	slog.SetDefault(log)
 	otlp.Version = version
+	parquet.Version = version
 
 	reg := prometheus.NewRegistry()
 	reg.MustRegister(collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),

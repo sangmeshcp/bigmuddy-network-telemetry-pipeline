@@ -94,6 +94,9 @@ processors:
     # rename: {interface-name: interface_name}  # align Cisco native & OpenConfig
     # drop: [subscription]
 
+  - type: metric_types
+    presets: [network]                        # counters vs gauges (OTLP Sums, Prometheus counter type)
+
   # - type: rename
   #   names:  [{match: "^openconfig:", replace: ""}]
   #   fields: [{match: "^state/counters/", replace: ""}]
@@ -152,6 +155,39 @@ outputs:
     acks: all                  # all (idempotent) | leader | none
     # sasl: {mechanism: SCRAM-SHA-512, username: pipeline, password: ${KAFKA_PASSWORD}}
     # tls: {enabled: true}
+
+  # Lakehouse: Apache Iceberg tables through a REST catalog (Snowflake,
+  # Databricks, BigQuery, Athena, Trino query them as native tables).
+  # - name: lakehouse
+  #   type: iceberg
+  #   namespace: network
+  #   catalog:
+  #     uri: https://catalog.example.com/api/catalog
+  #     warehouse: network_wh
+  #     credential_file: /run/secrets/pipeline/iceberg
+  #     properties: {scope: "PRINCIPAL_ROLE:ALL", s3.region: us-east-1}
+  #   batch_size: 200000
+  #   flush_interval: 5m
+  #   queue: {type: disk, dir: /var/lib/pipeline/queue/lakehouse}
+
+  # Data lake: Parquet on S3-compatible storage (Snowflake, Databricks,
+  # BigQuery, Athena, Trino, ClickHouse, DuckDB read it).
+  # - name: lake
+  #   type: parquet
+  #   url: s3://my-bucket/network
+  #   s3: {region: us-east-1}            # AWS credential chain (IRSA, env, role)
+  #   batch_size: 200000
+  #   flush_interval: 5m
+  #   queue: {type: disk, dir: /var/lib/pipeline/queue/lake, max_bytes: 10737418240}
+
+  # Real-time SQL analytics in ClickHouse.
+  # - name: ch
+  #   type: clickhouse
+  #   addr: ["clickhouse:9000"]
+  #   database: network
+  #   password_file: /run/secrets/pipeline/clickhouse
+  #   ttl: 2160h
+  #   queue: {type: disk, dir: /var/lib/pipeline/queue/ch}
 
   # - name: debug
   #   type: file

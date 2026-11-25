@@ -4,8 +4,9 @@
 // Mimir/Cloud, Datadog, Elastic, Splunk, New Relic, Honeycomb, etc.
 //
 // Each device becomes an OTel Resource (service.instance.id / host.name =
-// source), each numeric field a Gauge data point with the metric's tags as
-// attributes.
+// source), each numeric field a data point with the metric's tags as
+// attributes: a monotonic cumulative Sum for fields typed as counters (see
+// the metric_types processor), a Gauge otherwise.
 package otlp
 
 import (
@@ -225,12 +226,24 @@ func (o *Output) build(batch []*telemetry.Metric) *collpb.ExportMetricsServiceRe
 			name := telemetry.SanitizeName(m.Name + "/" + f)
 			om := rs.metrics[name]
 			if om == nil {
-				om = &metricspb.Metric{Name: name, Data: &metricspb.Metric_Gauge{Gauge: &metricspb.Gauge{}}}
+				om = &metricspb.Metric{Name: name}
+				if m.KindOf(f) == telemetry.KindCounter {
+					// Device counters are cumulative totals since boot.
+					om.Data = &metricspb.Metric_Sum{Sum: &metricspb.Sum{
+						IsMonotonic:            true,
+						AggregationTemporality: metricspb.AggregationTemporality_AGGREGATION_TEMPORALITY_CUMULATIVE,
+					}}
+				} else {
+					om.Data = &metricspb.Metric_Gauge{Gauge: &metricspb.Gauge{}}
+				}
 				rs.metrics[name] = om
 				rs.order = append(rs.order, name)
 			}
-			g := om.GetGauge()
-			g.DataPoints = append(g.DataPoints, dp)
+			if sum := om.GetSum(); sum != nil {
+				sum.DataPoints = append(sum.DataPoints, dp)
+			} else {
+				om.GetGauge().DataPoints = append(om.GetGauge().DataPoints, dp)
+			}
 		}
 	}
 

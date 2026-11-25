@@ -79,6 +79,62 @@ With these rules, Prometheus series names become `xr_if_bytes_received`
 instead of
 `Cisco_IOS_XR_infra_statsd_oper_infra_statistics_interfaces_interface_latest_generic_counters_bytes_received`.
 
+## `metric_types`
+
+Marks numeric fields as **counters** or **gauges**. Telemetry doesn't say
+which is which, so by default everything is treated as a gauge. Typing
+counters makes outputs more accurate:
+
+| Output | Counter fields become |
+|---|---|
+| `otlp` | a monotonic, cumulative **Sum** (instead of a Gauge) |
+| `prometheus` | `# TYPE … counter` (series names are unchanged) |
+| `kafka`, `file` | listed in the record's `kinds` map |
+| analytical sinks (`parquet`, `clickhouse`) | `metric_type = 'counter'` |
+
+```yaml
+- type: metric_types
+  presets: [network]                 # OpenConfig .../counters/..., *-octets, *-pkts, *-errors, *-drops, ...
+  counters: ["^my-vendor-hits$"]     # extra counter regexes (on field names)
+  gauges: ["^state/counters/rate$"]  # gauges win over counters
+  # names: ["interfaces"]            # only metrics whose name matches
+```
+
+The `network` preset covers OpenConfig counters (any field under
+`counters/`), Cisco IOS XR generic-counters (`bytes-received`,
+`packets-sent`, `crc-errors`, `input-drops`, `carrier-transitions`, …) and
+BGP message and update counters. Strings and booleans are never typed.
+Fields keep their kind through the `rename` processor.
+
+!!! note
+    Because Prometheus' OpenMetrics format would rename counters to
+    `<name>_total`, the exporter serves the classic text format so series
+    names stay stable whether or not you enable typing.
+
+## `downsample`
+
+Keeps at most **one sample per series and field per interval**, dropping the
+rest. Use it to cut storage and warehouse cost when devices send more often
+than you need to keep, for example 10 s samples kept at 1 minute resolution
+in a data lake.
+
+```yaml
+- type: downsample
+  interval: 1m
+  # names: ["interfaces"]   # only these metrics; others pass through untouched
+```
+
+- Windows are aligned to the device timestamp, so every replica makes the
+  same choice.
+- Each field is handled separately, so leaves a device splits across
+  several notifications are each kept once per window.
+- Counters stay correct for `rate()` because they're cumulative. Gauges keep
+  the first sample of each window.
+
+To keep full resolution in one place and downsample for another (e.g.
+Prometheus at 10 s, the lake at 1 min), run two pipelines, or downsample in
+the warehouse.
+
 ## Ordering example
 
 ```yaml

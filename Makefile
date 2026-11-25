@@ -2,12 +2,16 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 IMAGE   ?= telemetry-pipeline
 
-.PHONY: all build test race cover lint generate image check-config integration smoke helm-lint dashboards chart-assets alerts-test dashboard-check clean
+.PHONY: all build build-slim test race cover lint generate image check-config integration smoke helm-lint dashboards chart-assets alerts-test dashboard-check clean
 
 all: lint test build
 
 build:
 	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/pipeline ./cmd/pipeline
+
+# Without the Iceberg output (Apache Arrow + AWS SDK): ~32 MiB instead of ~76 MiB.
+build-slim:
+	CGO_ENABLED=0 go build -trimpath -tags noiceberg -ldflags "$(LDFLAGS)" -o bin/pipeline ./cmd/pipeline
 
 test:
 	go test ./...
@@ -19,10 +23,11 @@ cover:
 	go test -covermode=atomic -coverprofile=coverage.out ./...
 	go tool cover -func=coverage.out | tail -1
 
+# staticcheck is built with this module's toolchain (go.mod), not the installed Go.
 lint:
 	gofmt -l . | (! grep .) || (echo "run gofmt -w ."; exit 1)
 	go vet -tags integration ./...
-	go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 -tags integration ./...
+	GOTOOLCHAIN=$$(go env GOVERSION) go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 -tags integration ./...
 
 # Integration tests against real backends/devices. Each test skips unless its
 # env vars are set (INFLUX_*, KAFKA_BROKERS, PROMETHEUS_URL, GNMI_*); see

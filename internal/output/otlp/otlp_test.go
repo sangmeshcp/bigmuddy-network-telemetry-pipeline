@@ -14,6 +14,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	collpb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
+	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/proto"
@@ -152,5 +153,27 @@ func TestGRPC(t *testing.T) {
 	check(t, c.got)
 	if v := c.md.Get("x-tenant"); len(v) != 1 || v[0] != "acme" {
 		t.Errorf("metadata %v", c.md)
+	}
+}
+
+func TestCountersBecomeMonotonicSums(t *testing.T) {
+	o := newOut(t, `{type: otlp, protocol: http, endpoint: "http://127.0.0.1:1"}`)
+	m := telemetry.New("/interfaces/interface", time.Unix(1700000000, 0))
+	m.Tags = map[string]string{"source": "r1"}
+	m.Fields = map[string]any{"in-octets": uint64(5), "mtu": int64(9000)}
+	m.SetKind("in-octets", telemetry.KindCounter)
+	req := o.build([]*telemetry.Metric{m})
+	ms := req.ResourceMetrics[0].ScopeMetrics[0].Metrics
+	byName := map[string]*metricspb.Metric{}
+	for _, x := range ms {
+		byName[x.Name] = x
+	}
+	sum := byName["interfaces_interface_in_octets"].GetSum()
+	if sum == nil || !sum.IsMonotonic || sum.AggregationTemporality != metricspb.AggregationTemporality_AGGREGATION_TEMPORALITY_CUMULATIVE ||
+		sum.DataPoints[0].GetAsInt() != 5 {
+		t.Errorf("counter not exported as monotonic cumulative sum: %v", byName["interfaces_interface_in_octets"])
+	}
+	if byName["interfaces_interface_mtu"].GetGauge() == nil {
+		t.Error("untyped field should stay a gauge")
 	}
 }

@@ -36,6 +36,55 @@ type Metric struct {
 	Fields map[string]any `json:"fields"`
 	// Timestamp is when the device sampled the data.
 	Timestamp time.Time `json:"timestamp"`
+	// Kinds optionally marks fields as counters or gauges (set by the
+	// metric_types processor). Fields without an entry are KindUnknown.
+	Kinds map[string]Kind `json:"kinds,omitempty"`
+}
+
+// Kind says how a numeric field behaves over time.
+type Kind uint8
+
+const (
+	KindUnknown Kind = iota // not classified; outputs treat it as a gauge
+	KindGauge               // a value that can go up and down
+	KindCounter             // a monotonically increasing total (resets on device restart)
+)
+
+func (k Kind) String() string {
+	switch k {
+	case KindGauge:
+		return "gauge"
+	case KindCounter:
+		return "counter"
+	}
+	return ""
+}
+
+// MarshalText renders a Kind as "gauge", "counter" or "".
+func (k Kind) MarshalText() ([]byte, error) { return []byte(k.String()), nil }
+
+// UnmarshalText parses the output of MarshalText.
+func (k *Kind) UnmarshalText(b []byte) error {
+	switch string(b) {
+	case "gauge":
+		*k = KindGauge
+	case "counter":
+		*k = KindCounter
+	default:
+		*k = KindUnknown
+	}
+	return nil
+}
+
+// KindOf returns the kind of a field.
+func (m *Metric) KindOf(field string) Kind { return m.Kinds[field] }
+
+// SetKind records the kind of a field.
+func (m *Metric) SetKind(field string, k Kind) {
+	if m.Kinds == nil {
+		m.Kinds = map[string]Kind{}
+	}
+	m.Kinds[field] = k
 }
 
 // New returns an empty metric with initialised maps.
@@ -55,6 +104,12 @@ func (m *Metric) Clone() *Metric {
 	}
 	for k, v := range m.Fields {
 		c.Fields[k] = v
+	}
+	if m.Kinds != nil {
+		c.Kinds = make(map[string]Kind, len(m.Kinds))
+		for k, v := range m.Kinds {
+			c.Kinds[k] = v
+		}
 	}
 	return c
 }

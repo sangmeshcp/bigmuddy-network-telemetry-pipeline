@@ -29,7 +29,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
-        with: {go-version-file: go.mod}
+        with: {go-version-file: .go-version}
       - run: go vet ./...
       - run: go test -race -count=1 ./...
       - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
@@ -45,7 +45,7 @@ jobs:
       - uses: actions/checkout@v7
         with: {fetch-depth: 0}   # changelog needs history
       - uses: actions/setup-go@v7
-        with: {go-version-file: go.mod}
+        with: {go-version-file: .go-version}
       - uses: sigstore/cosign-installer@v3
       - uses: anchore/sbom-action/download-syft@v0
       - uses: goreleaser/goreleaser-action@v7

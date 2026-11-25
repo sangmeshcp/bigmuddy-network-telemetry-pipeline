@@ -25,7 +25,8 @@ configured plugin.
 | `pipeline_router_filtered_total` | counter | Metrics removed by processors |
 | `pipeline_output_enqueued_total{output}` | counter | Accepted into an output queue |
 | `pipeline_output_written_total{output}` | counter | Successfully delivered |
-| `pipeline_output_dropped_total{output,reason}` | counter | `queue_full` (output too slow) or `write_failed` (permanent error or retries exhausted) |
+| `pipeline_output_dropped_total{output,reason}` | counter | `queue_full` (output too slow), `write_failed` (permanent error or retries exhausted), `disk_full` (disk queue reached `max_bytes`) |
+| `pipeline_output_disk_queue_bytes{output}` | gauge | Backlog in an output's disk queue |
 | `pipeline_output_write_errors_total{output}` | counter | Failed write attempts, including ones that later succeeded |
 | `pipeline_output_write_duration_seconds{output}` | histogram | Write latency |
 | `pipeline_output_batch_size{output}` | histogram | Metrics per write |

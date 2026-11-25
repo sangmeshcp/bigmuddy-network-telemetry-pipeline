@@ -23,9 +23,12 @@ about ten minutes.
 
 **Required**
 
-- **Go 1.26.11+**: `go version`. The required version is in `go.mod`; with
-  the default `GOTOOLCHAIN=auto`, an older Go downloads the right one
-  automatically.
+- **Go 1.26.11+**: `go version`. `go.mod` sets the minimum (`go 1.26.11`)
+  and the toolchain CI, releases and the container image build with
+  (`toolchain go1.27.4`); with the default `GOTOOLCHAIN=auto`, Go downloads
+  that toolchain automatically. To change the Go version, update
+  `toolchain` in `go.mod`, `.go-version` (read by CI) and the Dockerfile
+  together; CI fails if they differ.
 - `git`, `make`, `curl`.
 
 **Optional, for specific tasks**

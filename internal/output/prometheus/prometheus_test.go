@@ -97,3 +97,35 @@ func TestExpiry(t *testing.T) {
 		t.Fatal("stale series not expired")
 	}
 }
+
+func TestCountersTypedWithStableNames(t *testing.T) {
+	o := newOut(t, "")
+	m := telemetry.New("/interfaces/interface", time.Now())
+	m.Tags = map[string]string{"source": "r1"}
+	m.Fields = map[string]any{"in-octets": uint64(5), "mtu": int64(9000)}
+	m.SetKind("in-octets", telemetry.KindCounter)
+	o.Write(context.Background(), []*telemetry.Metric{m})
+
+	// Ask for OpenMetrics explicitly: names must not gain a _total suffix.
+	req, _ := http.NewRequest("GET", "http://"+o.Addr().String()+"/metrics", nil)
+	req.Header.Set("Accept", "application/openmetrics-text;version=1.0.0")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	body := string(b)
+	for _, want := range []string{
+		"# TYPE interfaces_interface_in_octets counter",
+		`interfaces_interface_in_octets{source="r1"} 5`,
+		"# TYPE interfaces_interface_mtu untyped",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q in:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "in_octets_total") {
+		t.Errorf("counter was renamed with _total:\n%s", body)
+	}
+}

@@ -8,6 +8,24 @@ and exported metric names.
 ## [Unreleased]
 
 ### Added
+- **Data platforms**: `parquet` output (Hive-partitioned Parquet lake on
+  S3-compatible or local storage, readable by Snowflake, Databricks, BigQuery,
+  Athena, Trino, ClickHouse and DuckDB) and `clickhouse` output (native
+  protocol, auto-created MergeTree table). Both use one fixed analytical row
+  layout, and retries never duplicate data.
+- `iceberg` output: appends to Apache Iceberg tables through a REST catalog
+  (Glue and SQL catalogs with build tags), with partitioning by day or hour
+  and idempotent commits. Verified against an Iceberg REST catalog and with
+  PyIceberg. Build with `-tags noiceberg` for a smaller binary.
+- `kafka` output `format: avro`: analytical rows as Avro in the Confluent
+  wire format, schema registered in a Schema Registry, ready for the
+  Snowflake, Databricks, BigQuery and ClickHouse Kafka connectors. Verified
+  against Redpanda, with ClickHouse decoding the records.
+- Durable disk-backed output queues (`queue: {type: disk}`): survive restarts
+  and destination outages.
+- `metric_types` processor: marks counters (OTLP monotonic Sums,
+  Prometheus counter type); `downsample` processor for cost control.
+
 - Signed release archives for linux/darwin × amd64/arm64 with checksums and
   SBOMs; multi-arch, cosign-signed container image on GHCR; release
   rehearsal in CI.
@@ -19,6 +37,15 @@ and exported metric names.
   checked against a live pipeline in CI.
 - Community files: issue forms, PR template, code of conduct, security
   policy, governance, this changelog, DCO check and Dependabot.
+
+### Changed
+- Builds use Go 1.27.4 everywhere (CI, release binaries, container image;
+  1.27.4 fixes GO-2026-6859, an HTTP/1 server crash in `net/http`)
+  via `toolchain go1.27.4` in `go.mod` and `.go-version`; building from
+  source still needs only Go 1.26.11+. CI fails if the Go versions in
+  `go.mod`, `.go-version` and the Dockerfile differ.
+- The Prometheus exporter serves the classic text format (not OpenMetrics),
+  so series names stay stable when counters are typed.
 
 ## 2026 rebuild
 

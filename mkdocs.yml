@@ -65,6 +65,7 @@ nav:
       - Outputs: configuration/outputs.md
   - Operations:
       - Deployment: operations/deployment.md
+      - Data platforms: operations/data-platforms.md
       - Monitoring the pipeline: operations/monitoring.md
       - Troubleshooting: operations/troubleshooting.md
   - Development:

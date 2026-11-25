@@ -44,11 +44,12 @@ type Config struct {
 }
 
 type sample struct {
-	name   string
-	labels map[string]string
-	value  float64
-	ts     time.Time
-	seen   time.Time
+	name    string
+	labels  map[string]string
+	value   float64
+	ts      time.Time
+	seen    time.Time
+	counter bool
 }
 
 // Output is the Prometheus exporter.
@@ -83,8 +84,10 @@ func New(p *config.Plugin, env pipeline.Env) (pipeline.Output, error) {
 	reg := prometheus.NewRegistry()
 	reg.MustRegister(o)
 	mux := http.NewServeMux()
-	mux.Handle(c.Path, promhttp.HandlerFor(reg, promhttp.HandlerOpts{ErrorHandling: promhttp.ContinueOnError,
-		EnableOpenMetrics: true}))
+	// Classic text format only: the OpenMetrics encoder renames counters to
+	// <name>_total, which would change series names (and break dashboards)
+	// whenever the metric_types processor is enabled.
+	mux.Handle(c.Path, promhttp.HandlerFor(reg, promhttp.HandlerOpts{ErrorHandling: promhttp.ContinueOnError}))
 	tc, err := c.TLS.Server()
 	if err != nil {
 		return nil, err
@@ -156,6 +159,7 @@ func (o *Output) Write(_ context.Context, batch []*telemetry.Metric) error {
 				o.series[key] = s
 			}
 			s.labels, s.value, s.ts, s.seen = lbl, val, m.Timestamp, now
+			s.counter = m.KindOf(field) == telemetry.KindCounter
 		}
 	}
 	return nil
@@ -211,12 +215,19 @@ func (o *Output) Collect(ch chan<- prometheus.Metric) {
 		}
 		sort.Strings(names)
 		desc := prometheus.NewDesc(name, "Telemetry from "+name, names, nil)
+		// Fields typed as counters by the metric_types processor are exposed
+		// as counters (so rate() hints and type metadata are right); others
+		// are untyped, because telemetry doesn't say.
+		vt := prometheus.UntypedValue
+		if ss[0].counter {
+			vt = prometheus.CounterValue
+		}
 		for _, s := range ss {
 			vals := make([]string, len(names))
 			for i, n := range names {
 				vals[i] = s.labels[n]
 			}
-			m, err := prometheus.NewConstMetric(desc, prometheus.UntypedValue, s.value, vals...)
+			m, err := prometheus.NewConstMetric(desc, vt, s.value, vals...)
 			if err != nil {
 				continue
 			}

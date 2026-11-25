@@ -8,7 +8,9 @@ streaming telemetry** from network devices. It subscribes to devices over
 **gNMI** (any vendor) or accepts **Cisco MDT dial-out**, normalises
 everything into one vendor-neutral metric model, optionally filters and
 enriches it, and delivers it to **Prometheus**, **OpenTelemetry (OTLP)**,
-**InfluxDB**, **Kafka** or files.
+**InfluxDB**, **Kafka**, **ClickHouse**, **Apache Iceberg** tables, a
+**Parquet data lake** (both read natively by Snowflake, Databricks, BigQuery,
+Athena, Trino and more) or files.
 
 📖 **Full documentation:** <https://sangameshpatil.com/bigmuddy-network-telemetry-pipeline/>
 (source in [`docs/`](docs/)).
@@ -250,7 +252,10 @@ openconfig:/interfaces/interface,interface_name=Ethernet1,source=core1 state/cou
 JSON records keyed by device, so each device's data stays ordered within a
 partition. Supports zstd/lz4/snappy/gzip, idempotent production, SASL
 (PLAIN/SCRAM) and TLS. Kafka is the bus for feeding Elasticsearch, Splunk,
-Flink, data lakes or your own consumers.
+Flink, data lakes or your own consumers. With `format: avro` it writes
+analytical rows as Avro with their schema in a Schema Registry (Confluent,
+Redpanda, Karapace, Apicurio), for the Snowflake, Databricks, BigQuery and
+ClickHouse Kafka connectors.
 
 ```yaml
 outputs:
@@ -260,6 +265,26 @@ outputs:
 ```json
 {"name":"openconfig:/interfaces/interface","tags":{"interface_name":"Ethernet1","source":"core1"},"fields":{"state/counters/in-octets":1234},"timestamp":"2026-11-24T09:00:00Z"}
 ```
+
+### Data platforms: Iceberg, Parquet lake and ClickHouse
+
+Append to **Apache Iceberg** tables through a REST catalog (Polaris /
+Snowflake Open Catalog, Unity Catalog, Nessie, S3 Tables, …): Snowflake,
+Databricks, BigQuery, Athena and Trino query them as native tables. Or write
+a Hive-partitioned **Parquet** lake to S3-compatible storage. Or insert
+directly into **ClickHouse** for real-time SQL. Both use one fixed table layout (one row per value), so new
+YANG models never need a schema change, and retries never duplicate data.
+
+```yaml
+outputs:
+  - {name: lakehouse, type: iceberg, namespace: network,
+     catalog: {uri: "https://catalog.example.com/api/catalog", credential_file: /run/secrets/iceberg}}
+  - {name: lake, type: parquet, url: "s3://my-bucket/network", flush_interval: 5m,
+     queue: {type: disk, dir: /var/lib/pipeline/queue/lake}}
+  - {name: ch, type: clickhouse, addr: ["clickhouse:9000"], database: network}
+```
+
+Recipes for each platform: [Data platforms](docs/operations/data-platforms.md).
 
 ### File
 
