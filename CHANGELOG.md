@@ -39,8 +39,9 @@ and exported metric names.
   policy, governance, this changelog, DCO check and Dependabot.
 
 ### Changed
-- Builds use Go 1.27.3 everywhere (CI, release binaries, container image)
-  via `toolchain go1.27.3` in `go.mod` and `.go-version`; building from
+- Builds use Go 1.27.4 everywhere (CI, release binaries, container image;
+  1.27.4 fixes GO-2026-6859, an HTTP/1 server crash in `net/http`)
+  via `toolchain go1.27.4` in `go.mod` and `.go-version`; building from
   source still needs only Go 1.26.11+. CI fails if the Go versions in
   `go.mod`, `.go-version` and the Dockerfile differ.
 - The Prometheus exporter serves the classic text format (not OpenMetrics),
